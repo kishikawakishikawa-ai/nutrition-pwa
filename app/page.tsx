@@ -4,10 +4,10 @@ import React, { useState, useEffect } from "react";
 import { MealInput } from "@/components/MealInput";
 import { RecommendationView } from "@/components/RecommendationView";
 import { NutrientTargets, MealRecord } from "@/types/nutrition";
-import { RefreshCw, CheckCircle2 } from "lucide-react";
+import { RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
 
-// ストレージキーを更新して古い不整合データを自動遮断
-const STORAGE_KEY = "nutrition_pwa_meal_records_v2";
+const STORAGE_KEY_RECORDS = "nutrition_pwa_meal_records_v2";
+const STORAGE_KEY_REC = "nutrition_pwa_recommendations_v2";
 
 const DEFAULT_DAILY_TARGET: NutrientTargets = {
   calories_kcal: 2200,
@@ -53,8 +53,17 @@ export default function Home() {
   const [recommendations, setRecommendations] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRecLoading, setIsRecLoading] = useState(false);
+  const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
-  // 安全に直近72時間の栄養素を集計
+  // クールダウンタイマー
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setTimeout(() => setCooldownSeconds((prev) => prev - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldownSeconds]);
+
+  // 直近72時間の栄養素集計
   const calculate3DaysConsumed = (records: MealRecord[]): NutrientTargets => {
     if (!Array.isArray(records)) return { ...ZERO_NUTRIENTS };
 
@@ -75,9 +84,30 @@ export default function Home() {
     return total;
   };
 
-  // レコメンドAPIの呼び出し
+  // 初回ロード時：APIを呼ばず、localStorageから過去データと提案を復元
+  useEffect(() => {
+    try {
+      const savedRecords = localStorage.getItem(STORAGE_KEY_RECORDS);
+      if (savedRecords) {
+        const parsed = JSON.parse(savedRecords);
+        if (Array.isArray(parsed)) setAllRecords(parsed);
+      }
+
+      const savedRec = localStorage.getItem(STORAGE_KEY_REC);
+      if (savedRec) {
+        setRecommendations(JSON.parse(savedRec));
+      }
+    } catch (e) {
+      console.error("データ読み込みエラー:", e);
+    }
+  }, []);
+
+  // レコメンドAPI呼び出し
   const fetchRecommendations = async (consumed: NutrientTargets) => {
+    if (isRecLoading || cooldownSeconds > 0) return;
+
     setIsRecLoading(true);
+    setRateLimitMessage(null);
     try {
       const res = await fetch("/api/recommend", {
         method: "POST",
@@ -87,51 +117,49 @@ export default function Home() {
           dailyTarget: DEFAULT_DAILY_TARGET,
         }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setRecommendations(data);
+
+      if (res.status === 429) {
+        setRateLimitMessage("APIの短時間利用上限に達しました。1〜2分待ってから再度お試しください。");
+        return;
       }
-    } catch (e) {
-      console.error(e);
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "提案の取得に失敗しました");
+      }
+
+      const data = await res.json();
+      setRecommendations(data);
+      localStorage.setItem(STORAGE_KEY_REC, JSON.stringify(data));
+      setCooldownSeconds(30); // 呼び出し成功後、30秒間クールダウン
+    } catch (e: any) {
+      console.error("Fetch recommendation failed:", e);
     } finally {
       setIsRecLoading(false);
     }
   };
 
-  // 初回マウント時：古いストレージを掃除し、安全にデータを読み込む
-  useEffect(() => {
-    try {
-      // 旧バージョンのキーを削除
-      localStorage.removeItem("nutrition_pwa_meal_records_v1");
-
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setAllRecords(parsed);
-          const consumed = calculate3DaysConsumed(parsed);
-          fetchRecommendations(consumed);
-        }
-      }
-    } catch (e) {
-      console.error("履歴の初期化・読み込みエラー:", e);
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
-
   // 食事の解析と保存
   const handleRecordSubmit = async (text: string, consumedAtStr: string) => {
+    if (isAnalyzing) return;
+
     setIsAnalyzing(true);
+    setRateLimitMessage(null);
     try {
       const res = await fetch("/api/analyze-meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meal_text: text }),
       });
-      const data = await res.json();
 
+      if (res.status === 429) {
+        setRateLimitMessage("APIの利用上限に達しています。1〜2分空けてから再記録してください。");
+        return;
+      }
+
+      const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "解析エラー");
+        throw new Error(data.error || "食事解析に失敗しました");
       }
 
       const singleMealNutrients: NutrientTargets = { ...ZERO_NUTRIENTS };
@@ -154,15 +182,15 @@ export default function Home() {
 
       const updatedRecords = [newRecord, ...allRecords];
       setAllRecords(updatedRecords);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
-
+      localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(updatedRecords));
       setLastMealSummary(newRecord.mealSummary);
 
+      // 食事記録後に提案を更新
       const updated3Days = calculate3DaysConsumed(updatedRecords);
       await fetchRecommendations(updated3Days);
     } catch (e: any) {
       console.error(e);
-      alert(`解析に失敗しました: ${e.message}`);
+      alert(`解析エラー: ${e.message}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -184,15 +212,25 @@ export default function Home() {
           </div>
           <button
             onClick={() => fetchRecommendations(calculate3DaysConsumed(allRecords))}
-            disabled={isRecLoading}
-            className="p-2 text-gray-500 hover:text-gray-800 active:scale-95 transition-transform"
+            disabled={isRecLoading || cooldownSeconds > 0}
+            className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 active:scale-95 transition-all"
+            title="提案を手動更新"
           >
-            <RefreshCw className={`w-4 h-4 ${isRecLoading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRecLoading ? "animate-spin" : ""}`} />
+            <span>{cooldownSeconds > 0 ? `${cooldownSeconds}s` : "更新"}</span>
           </button>
         </div>
       </header>
 
       <div className="max-w-md mx-auto p-4 space-y-5">
+        {/* レートリミット到達時の警告通知 */}
+        {rateLimitMessage && (
+          <div className="flex items-center gap-2 p-3 bg-amber-50 text-amber-800 text-xs rounded-xl border border-amber-200">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span>{rateLimitMessage}</span>
+          </div>
+        )}
+
         <section>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-1">
             食事を記録
