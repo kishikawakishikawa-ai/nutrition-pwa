@@ -15,6 +15,46 @@ function getCurrentDateTimeLocal() {
   return new Date(now.getTime() - offset).toISOString().slice(0, 16);
 }
 
+// iPhoneの高解像度画像をブラウザ内で長辺1200px・JPEGに圧縮する関数
+function compressImage(file: File, maxDimension = 1200, quality = 0.8): Promise<{ base64: string; mimeType: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas context is not available"));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        const base64 = dataUrl.split(",")[1];
+        resolve({ base64, mimeType: "image/jpeg" });
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function MealInput({ onRecordSubmit, isAnalyzing }: MealInputProps) {
   const [text, setText] = useState("");
   const [consumedAt, setConsumedAt] = useState(getCurrentDateTimeLocal());
@@ -23,32 +63,38 @@ export function MealInput({ onRecordSubmit, isAnalyzing }: MealInputProps) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  // 画像をBase64に変換して食材認識APIへ送信
+  // 画像を圧縮して食材認識APIへ送信
   const handleImageSelected = async (file: File) => {
     setIsRecognizingImage(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64Data = (reader.result as string).split(",")[1];
-        const res = await fetch("/api/recognize-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            imageBase64: base64Data,
-            mimeType: file.type,
-          }),
-        });
-        const data = await res.json();
-        if (data.recognizedText) {
-          setText((prev) =>
-            prev ? `${prev}, ${data.recognizedText}` : data.recognizedText
-          );
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (e) {
+      // 1. 画像圧縮
+      const { base64, mimeType } = await compressImage(file);
+
+      // 2. API送信
+      const res = await fetch("/api/recognize-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType: mimeType,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "認識サーバーでエラーが発生しました");
+      }
+
+      if (data.recognizedText) {
+        setText((prev) =>
+          prev ? `${prev}, ${data.recognizedText}` : data.recognizedText
+        );
+      } else {
+        alert("食材を検出できませんでした。直接入力してください。");
+      }
+    } catch (e: any) {
       console.error(e);
-      alert("画像の認識に失敗しました");
+      alert(`画像の認識に失敗しました: ${e.message}`);
     } finally {
       setIsRecognizingImage(false);
     }
@@ -57,8 +103,8 @@ export function MealInput({ onRecordSubmit, isAnalyzing }: MealInputProps) {
   const handleSubmit = async () => {
     if (!text.trim() || isAnalyzing || isRecognizingImage) return;
     await onRecordSubmit(text.trim(), consumedAt);
-    setText(""); // 送信完了後に入力欄をクリア
-    setConsumedAt(getCurrentDateTimeLocal()); // 日時を現在時刻にリセット
+    setText("");
+    setConsumedAt(getCurrentDateTimeLocal());
   };
 
   return (
@@ -66,7 +112,7 @@ export function MealInput({ onRecordSubmit, isAnalyzing }: MealInputProps) {
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="料理名や食材を入力（例: 鶏むね肉200g、カレーライス1杯）&#13;&#10;※写真から自動読み取りされた内容もここで修正できます"
+        placeholder="料理名や食材を入力（例: 鶏むね肉200g、カレーライス1杯）&#13;&#10;※写真から読み取られた内容もここで修正できます"
         rows={3}
         className="w-full text-sm p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white resize-none"
       />
