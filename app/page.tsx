@@ -70,17 +70,22 @@ export default function Home() {
     }
   }, []);
 
-  // 直近72時間（3日間）の食事ログを抽出して合計栄養素を計算するロジック
+  // 安全対策を施した集計ロジック
   const calculate3DaysConsumed = (records: MealRecord[]): NutrientTargets => {
+    if (!Array.isArray(records)) return { ...ZERO_NUTRIENTS };
+
     const seventyTwoHoursAgo = new Date(Date.now() - 72 * 60 * 60 * 1000);
-    const recentRecords = records.filter(
-      (r) => new Date(r.consumedAt) >= seventyTwoHoursAgo
-    );
+    const recentRecords = records.filter((r) => {
+      if (!r || !r.consumedAt) return false;
+      const t = new Date(r.consumedAt).getTime();
+      return !isNaN(t) && t >= seventyTwoHoursAgo.getTime();
+    });
 
     const total: NutrientTargets = { ...ZERO_NUTRIENTS };
     for (const record of recentRecords) {
+      if (!record?.nutrients) continue;
       for (const key of Object.keys(total) as (keyof NutrientTargets)[]) {
-        total[key] += record.nutrients[key] || 0;
+        total[key] += Number(record.nutrients[key]) || 0;
       }
     }
     return total;
