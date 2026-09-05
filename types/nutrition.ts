@@ -77,3 +77,30 @@ export function getTopDeficiencies(
 
   return results.sort((a, b) => a.fulfillment_rate - b.fulfillment_rate).slice(0, topN);
 }
+export interface NutrientTargets {
+  calories_kcal: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  fiber_g: number;
+  salt_equivalent_g: number;
+  vitamin_a_ug: number;
+  vitamin_b1_mg: number;
+  vitamin_b2_mg: number;
+  vitamin_c_mg: number;
+  vitamin_d_ug: number;
+  calcium_mg: number;
+  iron_mg: number;
+  zinc_mg: number;
+  potassium_mg: number;
+  magnesium_mg: number;
+}
+
+// 1回分の食事ログの型
+export interface MealRecord {
+  id: string;
+  consumedAt: string; // ISO 8601形式 (例: 2026-09-05T12:00:00.000Z)
+  inputText: string;
+  mealSummary: string;
+  nutrients: NutrientTargets;
+}

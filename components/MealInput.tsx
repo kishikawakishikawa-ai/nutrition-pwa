@@ -1,157 +1,161 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Camera, Image as ImageIcon, Send, Loader2, X } from "lucide-react";
+import { Camera, Image as ImageIcon, Send, Loader2, Calendar } from "lucide-react";
 
 interface MealInputProps {
-  onAnalysisComplete: (result: any) => void;
+  onRecordSubmit: (text: string, consumedAt: string) => Promise<void>;
+  isAnalyzing: boolean;
 }
 
-export const MealInput: React.FC<MealInputProps> = ({ onAnalysisComplete }) => {
-  const [textInput, setTextInput] = useState("");
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [mimeType, setMimeType] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// 日本時間の現在日時を "YYYY-MM-DDTHH:mm" 形式で取得
+function getCurrentDateTimeLocal() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 16);
+}
+
+export function MealInput({ onRecordSubmit, isAnalyzing }: MealInputProps) {
+  const [text, setText] = useState("");
+  const [consumedAt, setConsumedAt] = useState(getCurrentDateTimeLocal());
+  const [isRecognizingImage, setIsRecognizingImage] = useState(false);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setMimeType(file.type);
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = (reader.result as string).split(",")[1];
-      setSelectedImage(base64String);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!textInput.trim() && !selectedImage) return;
-
-    setIsLoading(true);
-    setError(null);
-
+  // 画像をBase64に変換して食材認識APIへ送信
+  const handleImageSelected = async (file: File) => {
+    setIsRecognizingImage(true);
     try {
-      const res = await fetch("/api/analyze-meal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: textInput,
-          imageBase64: selectedImage,
-          mimeType: mimeType,
-        }),
-      });
-
-      if (!res.ok) throw new Error("解析に失敗しました");
-
-      const data = await res.json();
-      onAnalysisComplete(data);
-      setTextInput("");
-      setSelectedImage(null);
-      setMimeType(null);
-    } catch (err: any) {
-      setError(err.message || "エラーが発生しました");
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = (reader.result as string).split(",")[1];
+        const res = await fetch("/api/recognize-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageBase64: base64Data,
+            mimeType: file.type,
+          }),
+        });
+        const data = await res.json();
+        if (data.recognizedText) {
+          setText((prev) =>
+            prev ? `${prev}, ${data.recognizedText}` : data.recognizedText
+          );
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      console.error(e);
+      alert("画像の認識に失敗しました");
     } finally {
-      setIsLoading(false);
+      setIsRecognizingImage(false);
     }
   };
 
+  const handleSubmit = async () => {
+    if (!text.trim() || isAnalyzing || isRecognizingImage) return;
+    await onRecordSubmit(text.trim(), consumedAt);
+    setText(""); // 送信完了後に入力欄をクリア
+    setConsumedAt(getCurrentDateTimeLocal()); // 日時を現在時刻にリセット
+  };
+
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-      <form onSubmit={handleSubmit} className="space-y-3">
-        {selectedImage && (
-          <div className="relative w-full h-48 rounded-xl overflow-hidden bg-gray-100 border border-gray-200">
-            <img
-              src={`data:${mimeType};base64,${selectedImage}`}
-              alt="プレビュー"
-              className="w-full h-full object-cover"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedImage(null);
-                setMimeType(null);
-              }}
-              className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded-full active:scale-95 transition-transform"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-200/80 space-y-3">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="料理名や食材を入力（例: 鶏むね肉200g、カレーライス1杯）&#13;&#10;※写真から自動読み取りされた内容もここで修正できます"
+        rows={3}
+        className="w-full text-sm p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white resize-none"
+      />
 
-        <div>
-          <textarea
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="料理名や食材を入力（例: 鶏むね肉200g、カレーライス1杯）"
-            rows={2}
-            className="w-full p-3 text-base bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none"
-          />
+      {/* 日時選択欄 */}
+      <div className="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
+        <Calendar className="w-4 h-4 text-gray-500 flex-shrink-0" />
+        <span className="font-medium flex-shrink-0">食べた日時:</span>
+        <input
+          type="datetime-local"
+          value={consumedAt}
+          onChange={(e) => setConsumedAt(e.target.value)}
+          className="bg-transparent focus:outline-none w-full text-gray-800"
+        />
+      </div>
+
+      {isRecognizingImage && (
+        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+          <span>写真から食材と分量を判別中...</span>
         </div>
+      )}
 
-        <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between pt-1">
+        <div className="flex gap-2">
+          {/* カメラ起動 */}
           <input
+            ref={cameraInputRef}
             type="file"
             accept="image/*"
             capture="environment"
-            ref={cameraInputRef}
-            onChange={handleFileChange}
             className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0]) handleImageSelected(e.target.files[0]);
+              e.target.value = "";
+            }}
           />
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={isRecognizingImage || isAnalyzing}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50"
+          >
+            <Camera className="w-4 h-4 text-gray-500" />
+            <span>撮影</span>
+          </button>
+
+          {/* アルバムから選択 */}
           <input
+            ref={galleryInputRef}
             type="file"
             accept="image/*"
-            ref={galleryInputRef}
-            onChange={handleFileChange}
             className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0]) handleImageSelected(e.target.files[0]);
+              e.target.value = "";
+            }}
           />
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => cameraInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl active:bg-gray-200 transition-colors"
-            >
-              <Camera className="w-4 h-4 text-gray-600" />
-              撮影
-            </button>
-            <button
-              type="button"
-              onClick={() => galleryInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl active:bg-gray-200 transition-colors"
-            >
-              <ImageIcon className="w-4 h-4 text-gray-600" />
-              写真
-            </button>
-          </div>
-
           <button
-            type="submit"
-            disabled={isLoading || (!textInput.trim() && !selectedImage)}
-            className="flex items-center gap-1.5 px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-xl disabled:bg-gray-300 active:scale-95 transition-all shadow-sm"
+            type="button"
+            onClick={() => galleryInputRef.current?.click()}
+            disabled={isRecognizingImage || isAnalyzing}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50"
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                解析中
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                記録
-              </>
-            )}
+            <ImageIcon className="w-4 h-4 text-gray-500" />
+            <span>写真</span>
           </button>
         </div>
 
-        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-      </form>
+        {/* 記録ボタン */}
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!text.trim() || isRecognizingImage || isAnalyzing}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all disabled:opacity-40"
+        >
+          {isAnalyzing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>解析中...</span>
+            </>
+          ) : (
+            <>
+              <Send className="w-4 h-4" />
+              <span>記録</span>
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
-};
+}
