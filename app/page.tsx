@@ -6,7 +6,8 @@ import { RecommendationView } from "@/components/RecommendationView";
 import { NutrientTargets, MealRecord } from "@/types/nutrition";
 import { RefreshCw, CheckCircle2 } from "lucide-react";
 
-const STORAGE_KEY = "nutrition_pwa_meal_records_v1";
+// ストレージキーを更新して古い不整合データを自動遮断
+const STORAGE_KEY = "nutrition_pwa_meal_records_v2";
 
 const DEFAULT_DAILY_TARGET: NutrientTargets = {
   calories_kcal: 2200,
@@ -27,7 +28,6 @@ const DEFAULT_DAILY_TARGET: NutrientTargets = {
   magnesium_mg: 340,
 };
 
-// 栄養素のゼロ初期値
 const ZERO_NUTRIENTS: NutrientTargets = {
   calories_kcal: 0,
   protein_g: 0,
@@ -54,31 +54,15 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRecLoading, setIsRecLoading] = useState(false);
 
-  // 初回マウント時にlocalStorageから過去の全履歴を読み込む
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed: MealRecord[] = JSON.parse(saved);
-        setAllRecords(parsed);
-        // 保存データから直近3日分の栄養を集計して提案を取得
-        const consumed = calculate3DaysConsumed(parsed);
-        fetchRecommendations(consumed);
-      }
-    } catch (e) {
-      console.error("履歴の読み込みに失敗しました", e);
-    }
-  }, []);
-
-  // 安全対策を施した集計ロジック
+  // 安全に直近72時間の栄養素を集計
   const calculate3DaysConsumed = (records: MealRecord[]): NutrientTargets => {
     if (!Array.isArray(records)) return { ...ZERO_NUTRIENTS };
 
-    const seventyTwoHoursAgo = new Date(Date.now() - 72 * 60 * 60 * 1000);
+    const seventyTwoHoursAgo = Date.now() - 72 * 60 * 60 * 1000;
     const recentRecords = records.filter((r) => {
-      if (!r || !r.consumedAt) return false;
+      if (!r?.consumedAt) return false;
       const t = new Date(r.consumedAt).getTime();
-      return !isNaN(t) && t >= seventyTwoHoursAgo.getTime();
+      return !isNaN(t) && t >= seventyTwoHoursAgo;
     });
 
     const total: NutrientTargets = { ...ZERO_NUTRIENTS };
@@ -89,56 +73,6 @@ export default function Home() {
       }
     }
     return total;
-  };
-
-  // 食事の解析と保存処理
-  const handleRecordSubmit = async (text: string, consumedAtStr: string) => {
-    setIsAnalyzing(true);
-    try {
-      // 1. 食事解析APIの呼び出し
-      const res = await fetch("/api/analyze-meal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meal_text: text }),
-      });
-      const data = await res.json();
-
-      // 各品目の栄養素を合算して単一の食事栄養素を算出
-      const singleMealNutrients: NutrientTargets = { ...ZERO_NUTRIENTS };
-      if (data.items && Array.isArray(data.items)) {
-        for (const item of data.items) {
-          if (!item.nutrients) continue;
-          for (const key of Object.keys(singleMealNutrients) as (keyof NutrientTargets)[]) {
-            singleMealNutrients[key] += item.nutrients[key] || 0;
-          }
-        }
-      }
-
-      // 新しいレコードを作成
-      const newRecord: MealRecord = {
-        id: crypto.randomUUID(),
-        consumedAt: new Date(consumedAtStr).toISOString(),
-        inputText: text,
-        mealSummary: data.meal_summary || text,
-        nutrients: singleMealNutrients,
-      };
-
-      // 履歴を更新（最新順に保存）
-      const updatedRecords = [newRecord, ...allRecords];
-      setAllRecords(updatedRecords);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
-
-      setLastMealSummary(newRecord.mealSummary);
-
-      // 直近3日分の栄養素を再計算してレコメンドAPIを呼び出し
-      const updated3Days = calculate3DaysConsumed(updatedRecords);
-      await fetchRecommendations(updated3Days);
-    } catch (e) {
-      console.error(e);
-      alert("解析に失敗しました。もう一度お試しください。");
-    } finally {
-      setIsAnalyzing(false);
-    }
   };
 
   // レコメンドAPIの呼び出し
@@ -153,8 +87,10 @@ export default function Home() {
           dailyTarget: DEFAULT_DAILY_TARGET,
         }),
       });
-      const data = await res.json();
-      setRecommendations(data);
+      if (res.ok) {
+        const data = await res.json();
+        setRecommendations(data);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -162,13 +98,89 @@ export default function Home() {
     }
   };
 
+  // 初回マウント時：古いストレージを掃除し、安全にデータを読み込む
+  useEffect(() => {
+    try {
+      // 旧バージョンのキーを削除
+      localStorage.removeItem("nutrition_pwa_meal_records_v1");
+
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setAllRecords(parsed);
+          const consumed = calculate3DaysConsumed(parsed);
+          fetchRecommendations(consumed);
+        }
+      }
+    } catch (e) {
+      console.error("履歴の初期化・読み込みエラー:", e);
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  // 食事の解析と保存
+  const handleRecordSubmit = async (text: string, consumedAtStr: string) => {
+    setIsAnalyzing(true);
+    try {
+      const res = await fetch("/api/analyze-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meal_text: text }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "解析エラー");
+      }
+
+      const singleMealNutrients: NutrientTargets = { ...ZERO_NUTRIENTS };
+      if (data.items && Array.isArray(data.items)) {
+        for (const item of data.items) {
+          if (!item.nutrients) continue;
+          for (const key of Object.keys(singleMealNutrients) as (keyof NutrientTargets)[]) {
+            singleMealNutrients[key] += Number(item.nutrients[key]) || 0;
+          }
+        }
+      }
+
+      const newRecord: MealRecord = {
+        id: crypto.randomUUID(),
+        consumedAt: new Date(consumedAtStr).toISOString(),
+        inputText: text,
+        mealSummary: data.meal_summary || text,
+        nutrients: singleMealNutrients,
+      };
+
+      const updatedRecords = [newRecord, ...allRecords];
+      setAllRecords(updatedRecords);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
+
+      setLastMealSummary(newRecord.mealSummary);
+
+      const updated3Days = calculate3DaysConsumed(updatedRecords);
+      await fetchRecommendations(updated3Days);
+    } catch (e: any) {
+      console.error(e);
+      alert(`解析に失敗しました: ${e.message}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const validRecordCount = allRecords.filter((r) => {
+    if (!r?.consumedAt) return false;
+    const t = new Date(r.consumedAt).getTime();
+    return !isNaN(t) && t >= Date.now() - 72 * 60 * 60 * 1000;
+  }).length;
+
   return (
     <main className="min-h-screen bg-gray-100 text-gray-900 pb-12 pt-safe">
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-200/80 px-4 py-3">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-base font-bold tracking-tight">3-Day Nutrition</h1>
-            <p className="text-[10px] text-gray-500">直近72時間の記録数: {allRecords.filter(r => new Date(r.consumedAt) >= new Date(Date.now() - 72 * 60 * 60 * 1000)).length}件</p>
+            <p className="text-[10px] text-gray-500">直近72時間の記録数: {validRecordCount}件</p>
           </div>
           <button
             onClick={() => fetchRecommendations(calculate3DaysConsumed(allRecords))}
