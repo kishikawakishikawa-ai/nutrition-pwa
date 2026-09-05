@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from "react";
 import { MealInput } from "@/components/MealInput";
 import { RecommendationView } from "@/components/RecommendationView";
+import { MealNutrientModal } from "@/components/MealNutrientModal";
+import { HistoryModal } from "@/components/HistoryModal";
 import { NutrientTargets, MealRecord } from "@/types/nutrition";
-import { CheckCircle2, AlertCircle } from "lucide-react";
+import { CheckCircle2, AlertCircle, Calendar } from "lucide-react";
 
 const STORAGE_KEY_RECORDS = "nutrition_pwa_meal_records_v2";
 
-// 1日あたりの目標栄養素
 const DEFAULT_DAILY_TARGET: NutrientTargets = {
   calories_kcal: 2200,
   protein_g: 65,
@@ -47,7 +48,6 @@ const ZERO_NUTRIENTS: NutrientTargets = {
   magnesium_mg: 0,
 };
 
-// 栄養素ごとの推奨食材データベース（AI呼び出し不要・即時提案）
 const NUTRIENT_FOOD_PROPOSALS: Record<string, { food: string; portion: string; reason: string }> = {
   protein_g: { food: "鶏むね肉・ゆで卵・納豆", portion: "1食分", reason: "良質なタンパク質を素早く補給できます。" },
   fiber_g: { food: "オートミール・ごぼう・わかめ", portion: "1小鉢", reason: "腸内環境を整え、食物繊維の不足を補います。" },
@@ -80,12 +80,13 @@ const NUTRIENT_LABELS: Record<keyof NutrientTargets, { name: string; unit: strin
 
 export default function Home() {
   const [allRecords, setAllRecords] = useState<MealRecord[]>([]);
-  const [lastMealSummary, setLastMealSummary] = useState<string | null>(null);
+  const [lastRecordedItem, setLastRecordedItem] = useState<MealRecord | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [recommendations, setRecommendations] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
 
-  // 端末保存データから直近72時間の栄養素を集計
+  // 直近72時間の栄養素集計
   const calculate3DaysConsumed = (records: MealRecord[]): NutrientTargets => {
     if (!Array.isArray(records)) return { ...ZERO_NUTRIENTS };
 
@@ -106,12 +107,11 @@ export default function Home() {
     return total;
   };
 
-  // APIを呼ばず、ローカルで瞬時に不足栄養素と改善提案を生成する関数
+  // ローカルレコメンド計算
   const generateRecommendationsLocally = (consumed: NutrientTargets) => {
     const shortages: any[] = [];
     const proposals: any[] = [];
 
-    // 3日間の基準目標値 = 1日目標 × 3
     for (const key of Object.keys(DEFAULT_DAILY_TARGET) as (keyof NutrientTargets)[]) {
       if (key === "calories_kcal" || key === "salt_equivalent_g") continue;
 
@@ -119,7 +119,6 @@ export default function Home() {
       const actual = consumed[key] || 0;
       const gap = target3Days - actual;
 
-      // 充足率が70%未満のものを不足として抽出
       if (gap > 0 && actual < target3Days * 0.7) {
         shortages.push({
           nutrient: NUTRIENT_LABELS[key]?.name || key,
@@ -145,11 +144,10 @@ export default function Home() {
         ? "直近3日間の栄養バランスは良好です。現在の食生活を維持してください。"
         : `直近3日間で特に「${shortages.slice(0, 3).map((s) => s.nutrient).join("・")}」が不足しています。おすすめの食材を取り入れて補いましょう。`;
 
-    const result = { advice, shortages, proposals };
-    setRecommendations(result);
+    setRecommendations({ advice, shortages, proposals });
   };
 
-  // 初期ロード時：ローカルデータから即時計算
+  // 初期読み込み
   useEffect(() => {
     try {
       const savedRecords = localStorage.getItem(STORAGE_KEY_RECORDS);
@@ -166,7 +164,7 @@ export default function Home() {
     }
   }, []);
 
-  // 食事の解析と保存（API呼び出しはこれ1つのみ）
+  // 食事の記録処理
   const handleRecordSubmit = async (text: string, consumedAtStr: string) => {
     if (isAnalyzing) return;
 
@@ -208,9 +206,11 @@ export default function Home() {
       const updatedRecords = [newRecord, ...allRecords];
       setAllRecords(updatedRecords);
       localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(updatedRecords));
-      setLastMealSummary(newRecord.mealSummary);
 
-      // 記録完了後、ローカルで直ちに3日間の不足栄養素と提案を再計算
+      // 記録完了モーダルを表示
+      setLastRecordedItem(newRecord);
+
+      // 直近3日分の提案を再計算
       const updated3Days = calculate3DaysConsumed(updatedRecords);
       generateRecommendationsLocally(updated3Days);
     } catch (e: any) {
@@ -219,6 +219,16 @@ export default function Home() {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  // 履歴からの削除処理
+  const handleDeleteRecord = (id: string) => {
+    const updated = allRecords.filter((r) => r.id !== id);
+    setAllRecords(updated);
+    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(updated));
+
+    const updated3Days = calculate3DaysConsumed(updated);
+    generateRecommendationsLocally(updated3Days);
   };
 
   const validRecordCount = allRecords.filter((r) => {
@@ -233,8 +243,17 @@ export default function Home() {
         <div className="max-w-md mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-base font-bold tracking-tight">3-Day Nutrition</h1>
-            <p className="text-[10px] text-gray-500">直近72時間の記録数: {validRecordCount}件</p>
+            <p className="text-[10px] text-gray-500">直近72時間の記録: {validRecordCount}件 / 全{allRecords.length}件</p>
           </div>
+          {/* カレンダー履歴ボタン */}
+          <button
+            onClick={() => setIsHistoryOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium active:scale-95 transition-all"
+            title="過去の記録をカレンダーで確認"
+          >
+            <Calendar className="w-4 h-4 text-emerald-600" />
+            <span>履歴</span>
+          </button>
         </div>
       </header>
 
@@ -254,12 +273,6 @@ export default function Home() {
             onRecordSubmit={handleRecordSubmit}
             isAnalyzing={isAnalyzing}
           />
-          {lastMealSummary && (
-            <div className="mt-2 flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-800 rounded-xl text-xs border border-emerald-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <span>記録完了: {lastMealSummary}</span>
-            </div>
-          )}
         </section>
 
         <section>
@@ -269,6 +282,20 @@ export default function Home() {
           <RecommendationView data={recommendations} isLoading={false} />
         </section>
       </div>
+
+      {/* 食事記録直後の栄養素プレビューモーダル */}
+      <MealNutrientModal
+        record={lastRecordedItem}
+        onClose={() => setLastRecordedItem(null)}
+      />
+
+      {/* カレンダー履歴閲覧モーダル */}
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        records={allRecords}
+        onDeleteRecord={handleDeleteRecord}
+      />
     </main>
   );
 }
