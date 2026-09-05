@@ -1,36 +1,33 @@
 "use client";
 
 import React from "react";
-import { Sparkles, Utensils, Clock, Apple, AlertCircle } from "lucide-react";
+import { Sparkles, AlertCircle, Utensils } from "lucide-react";
 
-interface Ingredient {
-  name: string;
-  portion_example: string;
-  nutrient_richness: string;
+interface ShortageItem {
+  nutrient: string;
+  consumed: number;
+  target: number;
+  unit: string;
+  gap: number;
 }
 
-interface Dish {
-  dish_name: string;
-  cooking_time_min: number;
-  key_ingredients: string[];
-  simple_recipe: string;
-}
-
-interface RecommendationItem {
-  target_nutrient: string;
+interface ProposalItem {
+  food_name: string;
+  portion: string;
   reason: string;
-  recommended_ingredients: Ingredient[];
-  recommended_dishes: Dish[];
 }
 
 interface RecommendationData {
-  period_summary: string;
-  recommendations: RecommendationItem[];
+  advice?: string;
+  shortages?: ShortageItem[];
+  proposals?: ProposalItem[];
+  analysis?: string;
+  recommendations?: any[];
 }
 
 interface RecommendationViewProps {
-  data: RecommendationData | null;
-  isLoading?: boolean;
+  data: RecommendationData | null | undefined;
+  isLoading: boolean;
 }
 
 export const RecommendationView: React.FC<RecommendationViewProps> = ({
@@ -39,112 +36,107 @@ export const RecommendationView: React.FC<RecommendationViewProps> = ({
 }) => {
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 space-y-3 bg-white rounded-2xl border border-gray-100">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gray-500 font-medium">
-          3日間の栄養バランスを解析中...
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200/80 text-center">
+        <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+        <p className="text-xs text-gray-500 font-medium">3日間の栄養バランスを解析中...</p>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200/80 text-center">
+        <p className="text-xs text-gray-500">
+          食事が記録されると、直近3日間の不足栄養素と改善提案がここに表示されます。
         </p>
       </div>
     );
   }
 
-  if (!data) return null;
+  // プロパティ名の不一致があってもフォールバックしてクラッシュを防ぐ
+  const adviceText = data.advice || data.analysis || "直近3日間の栄養バランスに基づく提案です。";
+  const shortages = Array.isArray(data.shortages) ? data.shortages : [];
+  const proposals = Array.isArray(data.proposals)
+    ? data.proposals
+    : Array.isArray(data.recommendations)
+    ? data.recommendations
+    : [];
 
   return (
     <div className="space-y-4">
-      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-4 shadow-sm">
-        <div className="flex items-center gap-2 mb-2">
-          <Sparkles className="w-5 h-5 text-blue-600" />
-          <h3 className="text-sm font-bold text-gray-800">
+      {/* 総合アドバイス */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-200/80 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          <h3 className="text-xs font-bold text-gray-800 tracking-wide uppercase">
             直近3日間の栄養分析
           </h3>
         </div>
-        <p className="text-xs text-gray-700 leading-relaxed">
-          {data.period_summary}
-        </p>
+        <p className="text-xs text-gray-700 leading-relaxed">{adviceText}</p>
       </div>
 
-      {data.recommendations.map((rec, index) => (
-        <div
-          key={index}
-          className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-4"
-        >
-          <div className="border-b border-gray-100 pb-3">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/60">
-                <AlertCircle className="w-3.5 h-3.5" />
-                不足: {rec.target_nutrient}
-              </span>
-            </div>
-            <p className="text-xs text-gray-600 mt-2">{rec.reason}</p>
+      {/* 不足している栄養素 */}
+      {shortages.length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-200/80 space-y-2.5">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <h3 className="text-xs font-bold text-gray-800 tracking-wide uppercase">
+              不足している栄養素
+            </h3>
           </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
-              <Apple className="w-4 h-4 text-emerald-600" />
-              おすすめの食材
-            </div>
-            <div className="grid grid-cols-1 gap-2">
-              {rec.recommended_ingredients.map((ing, iIdx) => (
-                <div
-                  key={iIdx}
-                  className="bg-emerald-50/50 border border-emerald-100/80 rounded-xl p-2.5 text-xs"
-                >
-                  <div className="flex justify-between items-center font-bold text-emerald-950 mb-0.5">
-                    <span>{ing.name}</span>
-                    <span className="text-[11px] font-normal text-emerald-700 bg-white px-2 py-0.5 rounded-full border border-emerald-100">
-                      目安: {ing.portion_example}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-emerald-800/80">
-                    {ing.nutrient_richness}
-                  </p>
+          <div className="grid grid-cols-2 gap-2">
+            {shortages.map((item, idx) => (
+              <div
+                key={idx}
+                className="bg-amber-50/50 border border-amber-100 rounded-xl p-2.5 space-y-1"
+              >
+                <div className="text-xs font-bold text-gray-800">{item?.nutrient}</div>
+                <div className="text-[11px] text-amber-700 font-medium">
+                  不足: {item?.gap} {item?.unit}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
-              <Utensils className="w-4 h-4 text-orange-500" />
-              おすすめの料理
-            </div>
-            <div className="space-y-2.5">
-              {rec.recommended_dishes.map((dish, dIdx) => (
-                <div
-                  key={dIdx}
-                  className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-gray-900">
-                      {dish.dish_name}
-                    </h4>
-                    <span className="flex items-center gap-1 text-[11px] text-gray-500 bg-white px-2 py-0.5 rounded-md border border-gray-200">
-                      <Clock className="w-3 h-3" />
-                      約{dish.cooking_time_min}分
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1">
-                    {dish.key_ingredients.map((item, kIdx) => (
-                      <span
-                        key={kIdx}
-                        className="text-[10px] bg-white border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-
-                  <p className="text-[11px] text-gray-600 bg-white p-2 rounded-lg border border-gray-100 leading-normal">
-                    {dish.simple_recipe}
-                  </p>
+                <div className="text-[10px] text-gray-500">
+                  摂取 {item?.consumed} / 目標 {item?.target} {item?.unit}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
+      )}
+
+      {/* 改善のためのおすすめ食材 */}
+      {proposals.length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-200/80 space-y-2.5">
+          <div className="flex items-center gap-1.5">
+            <Utensils className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <h3 className="text-xs font-bold text-gray-800 tracking-wide uppercase">
+              おすすめの補給食材
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {proposals.map((prop: any, idx: number) => {
+              const name = prop?.food_name || prop?.food || prop?.name || "おすすめ食材";
+              const portion = prop?.portion || prop?.quantity || "";
+              const reason = prop?.reason || prop?.description || "";
+              return (
+                <div
+                  key={idx}
+                  className="bg-gray-50 border border-gray-100 rounded-xl p-2.5 space-y-1"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-800">{name}</span>
+                    {portion && (
+                      <span className="text-[10px] font-medium bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-600">
+                        {portion}
+                      </span>
+                    )}
+                  </div>
+                  {reason && <p className="text-[11px] text-gray-600 leading-snug">{reason}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
