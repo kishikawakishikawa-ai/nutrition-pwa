@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+export const maxDuration = 60;
+
 const apiKey = process.env.GEMINI_API_KEY || "";
 const genAI = new GoogleGenerativeAI(apiKey);
+
+// 混雑時は自動で次のモデルに切り替える
+const CANDIDATE_MODELS = ["gemini-3.6-flash", "gemini-2.5-flash"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +19,6 @@ export async function POST(req: NextRequest) {
     }
 
     const { meal_text } = await req.json();
-
     if (!meal_text || typeof meal_text !== "string") {
       return NextResponse.json(
         { error: "食事内容のテキストが正しく指定されていません" },
@@ -22,19 +26,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-3.6-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    });
-
     const prompt = `
 あなたは管理栄養士です。入力された食事内容「${meal_text}」を正確に分析し、食材・料理ごとの栄養素（文部科学省「日本食品標準成分表」ベースの推定値）を算出してJSONで出力してください。
 
 【厳格な指示】
-1. 入力テキストに記載された食材・分量のみを対象としてください。勝手に別の料理に置き換えたり、入力されていない食材を追加したりしないでください。
-2. meal_summary には、入力された食事内容を過不足なく簡潔にまとめた文字列（例: "白米180g、焼き鮭80g、味噌汁"）を出力してください。
+1. 入力テキストに記載された食材・分量のみを対象としてください。勝手に別の料理に置き換えないでください。
+2. meal_summary には、入力された食事内容を簡潔にまとめた文字列を出力してください。
 3. 栄養素の数値は必ず整数または小数第1位までの数値（number）で出力してください。
 
 【出力JSONスキーマ】
@@ -67,11 +64,32 @@ export async function POST(req: NextRequest) {
 }
 `;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    const parsedData = JSON.parse(responseText);
+    let lastError: any = null;
 
-    return NextResponse.json(parsedData);
+    // モデル切り替えとリトライ処理
+    for (const modelName of CANDIDATE_MODELS) {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: { responseMimeType: "application/json" },
+      });
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+          const result = await model.generateContent(prompt);
+          const responseText = result.response.text();
+          const parsedData = JSON.parse(responseText);
+          return NextResponse.json(parsedData);
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`Analyze meal attempt ${attempt + 1} with ${modelName} failed:`, err?.message);
+        }
+      }
+    }
+
+    throw lastError;
   } catch (error: any) {
     console.error("Meal Analysis API Error:", error);
     return NextResponse.json(

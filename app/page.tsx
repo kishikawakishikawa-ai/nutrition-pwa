@@ -86,7 +86,6 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
 
-  // 直近72時間の栄養素集計
   const calculate3DaysConsumed = (records: MealRecord[]): NutrientTargets => {
     if (!Array.isArray(records)) return { ...ZERO_NUTRIENTS };
 
@@ -101,33 +100,54 @@ export default function Home() {
     for (const record of recentRecords) {
       if (!record?.nutrients) continue;
       for (const key of Object.keys(total) as (keyof NutrientTargets)[]) {
+        // 目標を超えても加算し続ける
         total[key] += Number(record.nutrients[key]) || 0;
       }
     }
     return total;
   };
 
-  // ローカルレコメンド計算
+  // 全栄養素のカード情報を生成（充足してもリストに残す）
   const generateRecommendationsLocally = (consumed: NutrientTargets) => {
-    const shortages: any[] = [];
+    const nutrientList: any[] = [];
     const proposals: any[] = [];
+    const shortageNames: string[] = [];
 
-    for (const key of Object.keys(DEFAULT_DAILY_TARGET) as (keyof NutrientTargets)[]) {
-      if (key === "calories_kcal" || key === "salt_equivalent_g") continue;
+    // 表示する対象栄養素（PFC、食物繊維、各ビタミン・ミネラル）
+    const targetKeys: (keyof NutrientTargets)[] = [
+      "protein_g",
+      "fat_g",
+      "carbs_g",
+      "fiber_g",
+      "vitamin_a_ug",
+      "vitamin_b1_mg",
+      "vitamin_b2_mg",
+      "vitamin_c_mg",
+      "vitamin_d_ug",
+      "calcium_mg",
+      "iron_mg",
+      "zinc_mg",
+      "potassium_mg",
+      "magnesium_mg",
+    ];
 
+    for (const key of targetKeys) {
       const target3Days = DEFAULT_DAILY_TARGET[key] * 3;
       const actual = consumed[key] || 0;
       const gap = target3Days - actual;
+      const isShortage = gap > 0;
 
-      if (gap > 0 && actual < target3Days * 0.7) {
-        shortages.push({
-          nutrient: NUTRIENT_LABELS[key]?.name || key,
-          consumed: Math.round(actual * 10) / 10,
-          target: Math.round(target3Days * 10) / 10,
-          unit: NUTRIENT_LABELS[key]?.unit || "",
-          gap: Math.round(gap * 10) / 10,
-        });
+      nutrientList.push({
+        nutrient: NUTRIENT_LABELS[key]?.name || key,
+        // 目標値を超えても積み上げた値を保持
+        consumed: Math.round(actual * 10) / 10,
+        target: Math.round(target3Days * 10) / 10,
+        unit: NUTRIENT_LABELS[key]?.unit || "",
+        gap: isShortage ? Math.round(gap * 10) / 10 : 0,
+      });
 
+      if (isShortage) {
+        shortageNames.push(NUTRIENT_LABELS[key]?.name || key);
         const matchedProposal = NUTRIENT_FOOD_PROPOSALS[key];
         if (matchedProposal && proposals.length < 3) {
           proposals.push({
@@ -140,14 +160,18 @@ export default function Home() {
     }
 
     const advice =
-      shortages.length === 0
-        ? "直近3日間の栄養バランスは良好です。現在の食生活を維持してください。"
-        : `直近3日間で特に「${shortages.slice(0, 3).map((s) => s.nutrient).join("・")}」が不足しています。おすすめの食材を取り入れて補いましょう。`;
+      shortageNames.length === 0
+        ? "直近3日間の主要な栄養素はすべて充足されています。良好なバランスです。"
+        : `直近3日間で特に「${shortageNames.slice(0, 3).join("・")}」が不足しています。おすすめの食材を取り入れて補いましょう。`;
 
-    setRecommendations({ advice, shortages, proposals });
+    setRecommendations({
+      advice,
+      nutrients: nutrientList,
+      shortages: nutrientList,
+      proposals,
+    });
   };
 
-  // 初期読み込み
   useEffect(() => {
     try {
       const savedRecords = localStorage.getItem(STORAGE_KEY_RECORDS);
@@ -164,7 +188,6 @@ export default function Home() {
     }
   }, []);
 
-  // 食事の記録処理
   const handleRecordSubmit = async (text: string, consumedAtStr: string) => {
     if (isAnalyzing) return;
 
@@ -178,7 +201,7 @@ export default function Home() {
       });
 
       if (res.status === 429) {
-        setRateLimitMessage("Gemini APIの制限に達しました。1〜2分待ってからお試しください。");
+        setRateLimitMessage("APIの制限に達しました。1〜2分待ってからお試しください。");
         return;
       }
 
@@ -207,10 +230,8 @@ export default function Home() {
       setAllRecords(updatedRecords);
       localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(updatedRecords));
 
-      // 記録完了モーダルを表示
       setLastRecordedItem(newRecord);
 
-      // 直近3日分の提案を再計算
       const updated3Days = calculate3DaysConsumed(updatedRecords);
       generateRecommendationsLocally(updated3Days);
     } catch (e: any) {
@@ -221,7 +242,6 @@ export default function Home() {
     }
   };
 
-  // 履歴からの削除処理
   const handleDeleteRecord = (id: string) => {
     const updated = allRecords.filter((r) => r.id !== id);
     setAllRecords(updated);
@@ -245,7 +265,6 @@ export default function Home() {
             <h1 className="text-base font-bold tracking-tight">3-Day Nutrition</h1>
             <p className="text-[10px] text-gray-500">直近72時間の記録: {validRecordCount}件 / 全{allRecords.length}件</p>
           </div>
-          {/* カレンダー履歴ボタン */}
           <button
             onClick={() => setIsHistoryOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium active:scale-95 transition-all"
@@ -277,19 +296,17 @@ export default function Home() {
 
         <section>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-1">
-            不足栄養素と提案（直近3日間）
+            栄養素の摂取状況（直近3日間）
           </h2>
           <RecommendationView data={recommendations} isLoading={false} />
         </section>
       </div>
 
-      {/* 食事記録直後の栄養素プレビューモーダル */}
       <MealNutrientModal
         record={lastRecordedItem}
         onClose={() => setLastRecordedItem(null)}
       />
 
-      {/* カレンダー履歴閲覧モーダル */}
       <HistoryModal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
