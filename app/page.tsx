@@ -6,7 +6,7 @@ import { RecommendationView } from "@/components/RecommendationView";
 import { MealNutrientModal } from "@/components/MealNutrientModal";
 import { HistoryModal } from "@/components/HistoryModal";
 import { NutrientTargets, MealRecord } from "@/types/nutrition";
-import { CheckCircle2, AlertCircle, Calendar } from "lucide-react";
+import { AlertCircle, Calendar } from "lucide-react";
 
 const STORAGE_KEY_RECORDS = "nutrition_pwa_meal_records_v2";
 
@@ -48,15 +48,22 @@ const ZERO_NUTRIENTS: NutrientTargets = {
   magnesium_mg: 0,
 };
 
+// 全14項目の補給食材マスターデータ
 const NUTRIENT_FOOD_PROPOSALS: Record<string, { food: string; portion: string; reason: string }> = {
-  protein_g: { food: "鶏むね肉・ゆで卵・納豆", portion: "1食分", reason: "良質なタンパク質を素早く補給できます。" },
-  fiber_g: { food: "オートミール・ごぼう・わかめ", portion: "1小鉢", reason: "腸内環境を整え、食物繊維の不足を補います。" },
-  vitamin_c_mg: { food: "ブロッコリー・キウイ・パプリカ", portion: "1個または小皿1杯", reason: "熱に強いビタミンCが豊富で、免疫維持をサポートします。" },
-  iron_mg: { food: "小松菜・豚レバー・あさり", portion: "1品", reason: "鉄分を補い、酸素の運搬と疲労回復を助けます。" },
-  calcium_mg: { food: "木綿豆腐・しらす・ヨーグルト", portion: "1パック", reason: "骨の健康維持に必要なカルシウムを効率よく摂取できます。" },
-  vitamin_b1_mg: { food: "豚ヒレ肉・大豆製品・玄米", portion: "1品", reason: "炭水化物をエネルギーに変換する代謝を促進します。" },
-  potassium_mg: { food: "バナナ・アボカド・ほうれん草", portion: "1本または1小鉢", reason: "塩分の排出を促し、体内の水分バランスを保ちます。" },
-  zinc_mg: { food: "牡蠣・牛肉赤身・ナッツ類", portion: "手のひら1杯", reason: "新陳代謝と免疫機能を維持する亜鉛を補給できます。" },
+  protein_g: { food: "鶏むね肉・ゆで卵・納豆", portion: "1食分", reason: "筋肉や皮膚、血液の材料となる良質なタンパク質を素早く補給できます。" },
+  fat_g: { food: "アボカド・素焼きナッツ・オリーブ油", portion: "手のひら1杯", reason: "細胞膜やホルモンの生成を助ける良質な不飽和脂肪酸を含みます。" },
+  carbs_g: { food: "玄米・オートミール・さつまいも", portion: "茶碗1杯", reason: "食物繊維を含み、緩やかにエネルギーに変わる良質な炭水化物です。" },
+  fiber_g: { food: "オートミール・ごぼう・わかめ", portion: "1小鉢", reason: "腸内環境を整え、糖質や脂質の吸収を穏やかにします。" },
+  vitamin_a_ug: { food: "にんじん・ほうれん草・かぼちゃ", portion: "小鉢1杯", reason: "緑黄色野菜に含まれるβカロテンで皮膚や粘膜の健康を保ちます。" },
+  vitamin_b1_mg: { food: "豚ヒレ肉・大豆製品・玄米", portion: "1品", reason: "炭水化物をエネルギーへと円滑に変換する代謝をサポートします。" },
+  vitamin_b2_mg: { food: "納豆・うなぎ・卵", portion: "1パック", reason: "脂質の代謝を助け、口内炎予防や皮膚の健康維持に関与します。" },
+  vitamin_c_mg: { food: "ブロッコリー・キウイ・パプリカ", portion: "1個または小皿1杯", reason: "熱に強いビタミンCが豊富で、コラーゲン合成と抗酸化を助けます。" },
+  vitamin_d_ug: { food: "鮭・さんま・干し椎茸", portion: "1切れ", reason: "カルシウムの腸管吸収を促進し、骨の健康維持に必須です。" },
+  calcium_mg: { food: "木綿豆腐・しらす・ヨーグルト", portion: "1パック", reason: "骨や歯の形成だけでなく、筋肉のスムーズな収縮にも関与します。" },
+  iron_mg: { food: "小松菜・豚レバー・あさり", portion: "1品", reason: "全身に酸素を運ぶヘモグロビンの構成成分となり疲労を防ぎます。" },
+  zinc_mg: { food: "牡蠣・牛肉赤身・ナッツ類", portion: "手のひら1杯", reason: "細胞分裂や新陳代謝、味覚と免疫機能の正常化に寄与します。" },
+  potassium_mg: { food: "バナナ・アボカド・ほうれん草", portion: "1本または1小鉢", reason: "余分な塩分（ナトリウム）の排出を促し、水分バランスを保ちます。" },
+  magnesium_mg: { food: "純ココア・ひじき・アーモンド", portion: "適量", reason: "300種以上の体内酵素の働きを助け、神経や筋肉の緊張を和らげます。" },
 };
 
 const NUTRIENT_LABELS: Record<keyof NutrientTargets, { name: string; unit: string }> = {
@@ -100,20 +107,16 @@ export default function Home() {
     for (const record of recentRecords) {
       if (!record?.nutrients) continue;
       for (const key of Object.keys(total) as (keyof NutrientTargets)[]) {
-        // 目標を超えても加算し続ける
         total[key] += Number(record.nutrients[key]) || 0;
       }
     }
     return total;
   };
 
-  // 全栄養素のカード情報を生成（充足してもリストに残す）
   const generateRecommendationsLocally = (consumed: NutrientTargets) => {
     const nutrientList: any[] = [];
-    const proposals: any[] = [];
     const shortageNames: string[] = [];
 
-    // 表示する対象栄養素（PFC、食物繊維、各ビタミン・ミネラル）
     const targetKeys: (keyof NutrientTargets)[] = [
       "protein_g",
       "fat_g",
@@ -136,39 +139,37 @@ export default function Home() {
       const actual = consumed[key] || 0;
       const gap = target3Days - actual;
       const isShortage = gap > 0;
+      const proposal = NUTRIENT_FOOD_PROPOSALS[key];
 
       nutrientList.push({
+        key,
         nutrient: NUTRIENT_LABELS[key]?.name || key,
-        // 目標値を超えても積み上げた値を保持
         consumed: Math.round(actual * 10) / 10,
         target: Math.round(target3Days * 10) / 10,
         unit: NUTRIENT_LABELS[key]?.unit || "",
         gap: isShortage ? Math.round(gap * 10) / 10 : 0,
+        proposal: proposal
+          ? {
+              food_name: proposal.food,
+              portion: proposal.portion,
+              reason: proposal.reason,
+            }
+          : null,
       });
 
       if (isShortage) {
         shortageNames.push(NUTRIENT_LABELS[key]?.name || key);
-        const matchedProposal = NUTRIENT_FOOD_PROPOSALS[key];
-        if (matchedProposal && proposals.length < 3) {
-          proposals.push({
-            food_name: matchedProposal.food,
-            portion: matchedProposal.portion,
-            reason: `${NUTRIENT_LABELS[key]?.name}が不足傾向です。${matchedProposal.reason}`,
-          });
-        }
       }
     }
 
     const advice =
       shortageNames.length === 0
         ? "直近3日間の主要な栄養素はすべて充足されています。良好なバランスです。"
-        : `直近3日間で特に「${shortageNames.slice(0, 3).join("・")}」が不足しています。おすすめの食材を取り入れて補いましょう。`;
+        : `直近3日間で特に「${shortageNames.slice(0, 3).join("・")}」が不足しています。各栄養素カードをタップするとおすすめ補給食材を確認できます。`;
 
     setRecommendations({
       advice,
       nutrients: nutrientList,
-      shortages: nutrientList,
-      proposals,
     });
   };
 
