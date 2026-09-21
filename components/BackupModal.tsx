@@ -26,16 +26,27 @@ export const BackupModal: React.FC<BackupModalProps> = ({
       alert("保存されている記録がありません。");
       return;
     }
-    const dataStr =
-      "data:text/json;charset=utf-8," +
-      encodeURIComponent(JSON.stringify(records, null, 2));
-    const downloadAnchor = document.createElement("a");
-    const today = new Date().toISOString().split("T")[0];
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `nutrition_backup_${today}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+
+    try {
+      const jsonStr = JSON.stringify(records, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+
+      const downloadAnchor = document.createElement("a");
+      const today = new Date().toISOString().split("T")[0];
+      downloadAnchor.href = url;
+      downloadAnchor.download = `nutrition_backup_${today}.json`;
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      URL.revokeObjectURL(url);
+
+      alert(
+        "バックアップファイルの保存処理を実行しました。\n「ファイル」アプリ内の「ダウンロード」フォルダをご確認ください。"
+      );
+    } catch (error) {
+      alert("エクスポート処理に失敗しました。");
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
