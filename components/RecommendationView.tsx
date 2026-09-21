@@ -3,6 +3,13 @@
 import React, { useState } from "react";
 import { Sparkles, AlertCircle, Utensils, X, ChevronRight } from "lucide-react";
 
+export interface FoodProposalItem {
+  food: string;
+  base_unit: string;
+  base_amount: number;
+  reason: string;
+}
+
 interface NutrientItem {
   key?: string;
   nutrient: string;
@@ -10,12 +17,7 @@ interface NutrientItem {
   target: number;
   unit: string;
   gap: number;
-  proposal?: {
-    food_name: string;
-    base_unit: string;
-    base_amount: number;
-    reason: string;
-  } | null;
+  proposals?: FoodProposalItem[];
 }
 
 interface RecommendationData {
@@ -28,17 +30,23 @@ interface RecommendationViewProps {
   isLoading: boolean;
 }
 
-// 不足量を満たすのに必要な食材量を計算
 function formatRequiredAmount(gap: number, baseAmount: number, baseUnit: string): string {
   if (!baseAmount || baseAmount <= 0) return "";
   const ratio = gap / baseAmount;
 
-  if (baseUnit === "100g") {
-    return `約 ${Math.round(ratio * 100)}g`;
+  if (
+    baseUnit === "100g" ||
+    baseUnit === "50g" ||
+    baseUnit === "30g" ||
+    baseUnit === "80g" ||
+    baseUnit === "70g"
+  ) {
+    const baseGrams = parseInt(baseUnit);
+    return `約 ${Math.round(ratio * baseGrams)}g`;
   }
   if (baseUnit.includes("本")) {
     const count = Math.round(ratio * 10) / 10;
-    return `約 ${count}本 (約 ${Math.round(ratio * 100)}g)`;
+    return `約 ${count}本`;
   }
   if (baseUnit.includes("パック")) {
     const count = Math.round(ratio * 10) / 10;
@@ -46,28 +54,39 @@ function formatRequiredAmount(gap: number, baseAmount: number, baseUnit: string)
   }
   if (baseUnit.includes("個")) {
     const count = Math.round(ratio * 10) / 10;
-    return `約 ${count}個 (約 ${Math.round(ratio * 100)}g)`;
+    return `約 ${count}個`;
   }
   if (baseUnit.includes("切れ")) {
     const count = Math.round(ratio * 10) / 10;
-    return `約 ${count}切れ (約 ${Math.round(ratio * 100)}g)`;
+    return `約 ${count}切れ`;
+  }
+  if (baseUnit.includes("尾")) {
+    const count = Math.round(ratio * 10) / 10;
+    return `約 ${count}尾`;
+  }
+  if (baseUnit.includes("株")) {
+    const count = Math.round(ratio * 10) / 10;
+    return `約 ${count}株`;
   }
   if (baseUnit.includes("粒")) {
     const count = Math.round(ratio * 10);
-    const grams = Math.round(ratio * 10 * 1.2);
-    return `約 ${count}粒 (約 ${grams}g)`;
+    return `約 ${count}粒`;
   }
   if (baseUnit.includes("丁")) {
-    const grams = Math.round(ratio * 150);
-    return `約 ${grams}g (約 ${(Math.round(ratio * 10) / 10) * 0.5}丁)`;
-  }
-  if (baseUnit.includes("半本")) {
-    const grams = Math.round(ratio * 50);
-    return `約 ${grams}g`;
+    const count = Math.round(ratio * 10) / 10;
+    return `約 ${count}丁`;
   }
   if (baseUnit.includes("杯")) {
     const count = Math.round(ratio * 10) / 10;
     return `約 ${count}杯`;
+  }
+  if (baseUnit.includes("缶")) {
+    const count = Math.round(ratio * 10) / 10;
+    return `約 ${count}缶`;
+  }
+  if (baseUnit.includes("握り")) {
+    const count = Math.round(ratio * 10) / 10;
+    return `約 ${count}握り`;
   }
   return `約 ${Math.round(ratio * 10) / 10} 回分 (${baseUnit})`;
 }
@@ -159,7 +178,7 @@ export const RecommendationView: React.FC<RecommendationViewProps> = ({
                     )}
                   </div>
 
-                  {/* 充足率を表示 */}
+                  {/* 充足率表示 */}
                   <div
                     className={`text-xs font-bold ${
                       isShortage ? "text-amber-700" : "text-emerald-700"
@@ -178,11 +197,11 @@ export const RecommendationView: React.FC<RecommendationViewProps> = ({
         </div>
       )}
 
-      {/* カードタップ時に表示される小窓（モーダル） */}
+      {/* カードタップ時の小窓（モーダル） */}
       {selectedNutrient && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 shadow-xl animate-in slide-in-from-bottom duration-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 shadow-xl max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-200 space-y-3">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-2.5 flex-shrink-0">
               <div>
                 <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
                   <Utensils className="w-4 h-4 text-emerald-600" />
@@ -200,8 +219,8 @@ export const RecommendationView: React.FC<RecommendationViewProps> = ({
               </button>
             </div>
 
-            {/* 不足量の表示 */}
-            <div className="flex items-center gap-2">
+            {/* 不足量ステータス */}
+            <div className="flex items-center gap-2 flex-shrink-0">
               {selectedNutrient.gap > 0 ? (
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200">
                   不足量: {selectedNutrient.gap} {selectedNutrient.unit}
@@ -213,41 +232,50 @@ export const RecommendationView: React.FC<RecommendationViewProps> = ({
               )}
             </div>
 
-            {/* おすすめ食材と不足分補給に必要な目安量 */}
-            {selectedNutrient.proposal ? (
-              <div className="bg-gray-50 border border-gray-200/80 rounded-xl p-3 space-y-2 text-xs">
-                <div className="font-bold text-gray-800 text-sm">
-                  {selectedNutrient.proposal.food_name}
-                </div>
+            {/* おすすめ食材（3アイテム表示） */}
+            <div className="overflow-y-auto flex-1 space-y-2 pr-1">
+              {selectedNutrient.proposals && selectedNutrient.proposals.length > 0 ? (
+                selectedNutrient.proposals.map((prop, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-gray-50 border border-gray-200/80 rounded-xl p-3 space-y-1.5 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-gray-800 text-sm">
+                        {idx + 1}. {prop.food}
+                      </span>
+                    </div>
 
-                {selectedNutrient.gap > 0 && selectedNutrient.proposal.base_amount > 0 && (
-                  <div className="bg-emerald-50 border border-emerald-200/80 rounded-lg p-2 text-emerald-900 space-y-0.5">
-                    <div className="text-[10px] text-emerald-700 font-medium">
-                      不足分（{selectedNutrient.gap} {selectedNutrient.unit}）を補う必要目安量:
-                    </div>
-                    <div className="text-sm font-extrabold text-emerald-800">
-                      {formatRequiredAmount(
-                        selectedNutrient.gap,
-                        selectedNutrient.proposal.base_amount,
-                        selectedNutrient.proposal.base_unit
-                      )}
-                    </div>
+                    {selectedNutrient.gap > 0 && prop.base_amount > 0 && (
+                      <div className="bg-emerald-50 border border-emerald-200/80 rounded-lg p-2 text-emerald-900 space-y-0.5">
+                        <div className="text-[10px] text-emerald-700 font-medium">
+                          不足分（{selectedNutrient.gap} {selectedNutrient.unit}）を補う必要目安量:
+                        </div>
+                        <div className="text-xs font-extrabold text-emerald-800">
+                          {formatRequiredAmount(
+                            selectedNutrient.gap,
+                            prop.base_amount,
+                            prop.base_unit
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-gray-600 text-[11px] leading-relaxed">
+                      {prop.reason}
+                    </p>
                   </div>
-                )}
-
-                <p className="text-gray-600 text-[11px] leading-relaxed">
-                  {selectedNutrient.proposal.reason}
+                ))
+              ) : (
+                <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-xl">
+                  バランスの良い食事を意識してください。
                 </p>
-              </div>
-            ) : (
-              <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-xl">
-                バランスの良い食事を意識してください。
-              </p>
-            )}
+              )}
+            </div>
 
             <button
               onClick={() => setSelectedNutrient(null)}
-              className="w-full py-2.5 bg-gray-900 text-white rounded-xl text-xs font-semibold hover:bg-black transition-all"
+              className="w-full py-2.5 bg-gray-900 text-white rounded-xl text-xs font-semibold hover:bg-black transition-all flex-shrink-0"
             >
               閉じる
             </button>

@@ -5,8 +5,9 @@ import { MealInput } from "@/components/MealInput";
 import { RecommendationView } from "@/components/RecommendationView";
 import { MealNutrientModal } from "@/components/MealNutrientModal";
 import { HistoryModal } from "@/components/HistoryModal";
+import { BackupModal } from "@/components/BackupModal";
 import { NutrientTargets, MealRecord } from "@/types/nutrition";
-import { AlertCircle, Calendar } from "lucide-react";
+import { AlertCircle, Calendar, Database } from "lucide-react";
 
 const STORAGE_KEY_RECORDS = "nutrition_pwa_meal_records_v2";
 
@@ -48,25 +49,81 @@ const ZERO_NUTRIENTS: NutrientTargets = {
   magnesium_mg: 0,
 };
 
-// 補給食材マスターデータ（標準量と栄養含有量を定義）
+// 全14栄養素（各3アイテムの食材提案マスター）
 const NUTRIENT_FOOD_PROPOSALS: Record<
   string,
-  { food: string; base_unit: string; base_amount: number; reason: string }
+  { food: string; base_unit: string; base_amount: number; reason: string }[]
 > = {
-  protein_g: { food: "鶏むね肉", base_unit: "100g", base_amount: 23.3, reason: "良質なタンパク質を効率よく補給できます。" },
-  fat_g: { food: "素焼きアーモンド", base_unit: "10粒(10g)", base_amount: 5.4, reason: "細胞膜の健康を保つ不飽和脂肪酸を含みます。" },
-  carbs_g: { food: "玄米ごはん", base_unit: "1杯(150g)", base_amount: 53.4, reason: "緩やかにエネルギーに変わる良質な炭水化物です。" },
-  fiber_g: { food: "ごぼう", base_unit: "100g", base_amount: 5.7, reason: "水溶性・不溶性食物繊維を含み腸内環境を整えます。" },
-  vitamin_a_ug: { food: "にんじん", base_unit: "半本(50g)", base_amount: 360, reason: "βカロテンが豊富で粘膜や皮膚の健康を維持します。" },
-  vitamin_b1_mg: { food: "豚ヒレ肉", base_unit: "100g", base_amount: 1.32, reason: "糖質の代謝を促しエネルギー生成をサポートします。" },
-  vitamin_b2_mg: { food: "納豆", base_unit: "1パック(50g)", base_amount: 0.28, reason: "脂質代謝に関与し、口内炎予防などをサポートします。" },
-  vitamin_c_mg: { food: "キウイフルーツ", base_unit: "1個(100g)", base_amount: 71, reason: "コラーゲン生成と抗酸化作用を助けるビタミンCが豊富です。" },
-  vitamin_d_ug: { food: "鮭", base_unit: "1切れ(100g)", base_amount: 32, reason: "カルシウムの吸収率を高め骨の健康に不可欠です。" },
-  calcium_mg: { food: "木綿豆腐", base_unit: "1/2丁(150g)", base_amount: 130, reason: "骨や歯の健康維持と筋肉収縮に必要なカルシウム源です。" },
-  iron_mg: { food: "小松菜", base_unit: "100g", base_amount: 2.8, reason: "ヘモグロビン形成に関与し酸欠による疲労を防ぎます。" },
-  zinc_mg: { food: "牛もも赤身肉", base_unit: "100g", base_amount: 4.2, reason: "新陳代謝や免疫機能の維持に欠かせない微量ミネラルです。" },
-  potassium_mg: { food: "バナナ", base_unit: "1本(100g)", base_amount: 360, reason: "ナトリウムの排出を促し体内の水分バランスを調整します。" },
-  magnesium_mg: { food: "素焼きアーモンド", base_unit: "10粒(12g)", base_amount: 37, reason: "酵素反応を助け神経や筋肉の働きを調整します。" },
+  protein_g: [
+    { food: "鶏むね肉", base_unit: "100g", base_amount: 23.3, reason: "高タンパク・低脂質な定番食材です。" },
+    { food: "ゆで卵", base_unit: "1個(50g)", base_amount: 6.3, reason: "手軽に摂れる良質なタンパク質源です。" },
+    { food: "納豆", base_unit: "1パック(50g)", base_amount: 8.3, reason: "植物性タンパク質と食物繊維を同時に摂取できます。" },
+  ],
+  fat_g: [
+    { food: "素焼きアーモンド", base_unit: "10粒(10g)", base_amount: 5.4, reason: "抗酸化作用のあるビタミンEと良質な脂質を含みます。" },
+    { food: "アボカド", base_unit: "半個(75g)", base_amount: 13.3, reason: "オレイン酸など不飽和脂肪酸が豊富です。" },
+    { food: "オリーブオイル", base_unit: "大さじ1(12g)", base_amount: 12.0, reason: "ドレッシングなどで手軽に摂取できます。" },
+  ],
+  carbs_g: [
+    { food: "玄米ごはん", base_unit: "1杯(150g)", base_amount: 53.4, reason: "血糖値の上昇が緩やかな炭水化物源です。" },
+    { food: "オートミール", base_unit: "1食(30g)", base_amount: 20.7, reason: "食物繊維と炭水化物を効率よく摂取できます。" },
+    { food: "さつまいも", base_unit: "1本(150g)", base_amount: 47.7, reason: "ビタミンや食物繊維も豊富に含まれます。" },
+  ],
+  fiber_g: [
+    { food: "ごぼう", base_unit: "100g", base_amount: 5.7, reason: "水溶性・不溶性両方の食物繊維が豊富です。" },
+    { food: "カット乾燥わかめ", base_unit: "大さじ1(3g)", base_amount: 1.1, reason: "汁物やサラダに手軽に追加できます。" },
+    { food: "オートミール", base_unit: "1食(30g)", base_amount: 2.8, reason: "水溶性食物繊維βグルカンを含みます。" },
+  ],
+  vitamin_a_ug: [
+    { food: "にんじん", base_unit: "半本(50g)", base_amount: 360, reason: "皮膚や粘膜を維持するβカロテンが豊富です。" },
+    { food: "ほうれん草", base_unit: "1株(30g)", base_amount: 162, reason: "緑黄色野菜の代表格でβカロテンを含みます。" },
+    { food: "かぼちゃ", base_unit: "1小鉢(80g)", base_amount: 264, reason: "甘みがあり料理に取り入れやすい野菜です。" },
+  ],
+  vitamin_b1_mg: [
+    { food: "豚ヒレ肉", base_unit: "100g", base_amount: 1.32, reason: "糖質をエネルギーに変える代謝をサポートします。" },
+    { food: "納豆", base_unit: "1パック(50g)", base_amount: 0.04, reason: "手軽にビタミンB群を補給できます。" },
+    { food: "玄米ごはん", base_unit: "1杯(150g)", base_amount: 0.24, reason: "白米に比べビタミンB1が多く含まれます。" },
+  ],
+  vitamin_b2_mg: [
+    { food: "納豆", base_unit: "1パック(50g)", base_amount: 0.28, reason: "脂質代謝を促し皮膚の健康維持を助けます。" },
+    { food: "鶏卵", base_unit: "1個(50g)", base_amount: 0.22, reason: "毎日の食事で取り入れやすい食材です。" },
+    { food: "豚レバー", base_unit: "50g", base_amount: 1.8, reason: "ビタミンB2が極めて豊富に含まれます。" },
+  ],
+  vitamin_c_mg: [
+    { food: "キウイフルーツ", base_unit: "1個(100g)", base_amount: 71, reason: "生のまま手軽にビタミンCを補給できます。" },
+    { food: "ブロッコリー", base_unit: "小皿1杯(70g)", base_amount: 84, reason: "加熱してもビタミンCが多く残ります。" },
+    { food: "赤パプリカ", base_unit: "1/2個(80g)", base_amount: 136, reason: "ビタミンC含有量がトップクラスの野菜です。" },
+  ],
+  vitamin_d_ug: [
+    { food: "鮭", base_unit: "1切れ(100g)", base_amount: 32, reason: "カルシウム吸収を助けるビタミンDが豊富です。" },
+    { food: "さんま", base_unit: "1尾(100g)", base_amount: 15, reason: "良質な脂質とビタミンDを同時に摂れます。" },
+    { food: "干し椎茸", base_unit: "2個(6g)", base_amount: 1.0, reason: "日光に当てることでビタミンDが増加します。" },
+  ],
+  calcium_mg: [
+    { food: "木綿豆腐", base_unit: "1/2丁(150g)", base_amount: 130, reason: "骨や歯のサポートに貢献するカルシウム源です。" },
+    { food: "しらす干し", base_unit: "大さじ2(15g)", base_amount: 31, reason: "丸ごと食べられる手軽なカルシウム源です。" },
+    { food: "プレーンヨーグルト", base_unit: "1カップ(100g)", base_amount: 120, reason: "吸収率の高い乳製品由来カルシウムです。" },
+  ],
+  iron_mg: [
+    { food: "小松菜", base_unit: "1株(50g)", base_amount: 1.4, reason: "植物性非ヘム鉄とビタミンCを含みます。" },
+    { food: "豚レバー", base_unit: "50g", base_amount: 6.5, reason: "吸収率の高いヘム鉄が豊富に含まれます。" },
+    { food: "あさり水煮缶", base_unit: "1缶(50g)", base_amount: 15, reason: "料理に手軽に使える鉄分源です。" },
+  ],
+  zinc_mg: [
+    { food: "牛もも赤身肉", base_unit: "100g", base_amount: 4.2, reason: "新陳代謝や味覚維持に必要な亜鉛を含みます。" },
+    { food: "牡蠣", base_unit: "3個(50g)", base_amount: 7.2, reason: "亜鉛含有量が非常に高い食材です。" },
+    { food: "ミックスナッツ", base_unit: "1握り(20g)", base_amount: 0.7, reason: "間食感覚で補給できます。" },
+  ],
+  potassium_mg: [
+    { food: "バナナ", base_unit: "1本(100g)", base_amount: 360, reason: "塩分排出を促すカリウムが手軽に摂れます。" },
+    { food: "アボカド", base_unit: "半個(75g)", base_amount: 540, reason: "果物・野菜類の中でトップクラスの含有量です。" },
+    { food: "ほうれん草", base_unit: "1小鉢(70g)", base_amount: 483, reason: "おひたしやスープで効率よく摂取できます。" },
+  ],
+  magnesium_mg: [
+    { food: "素焼きアーモンド", base_unit: "10粒(12g)", base_amount: 37, reason: "代謝や神経伝達を助けるマグネシウム源です。" },
+    { food: "木綿豆腐", base_unit: "1/2丁(150g)", base_amount: 86, reason: "日常の食事に取り入れやすい大豆食品です。" },
+    { food: "純ココア", base_unit: "スプーン1杯(6g)", base_amount: 26, reason: "飲み物に混ぜて手軽に補給できます。" },
+  ],
 };
 
 const NUTRIENT_LABELS: Record<keyof NutrientTargets, { name: string; unit: string }> = {
@@ -92,6 +149,7 @@ export default function Home() {
   const [allRecords, setAllRecords] = useState<MealRecord[]>([]);
   const [lastRecordedItem, setLastRecordedItem] = useState<MealRecord | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [recommendations, setRecommendations] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
@@ -142,7 +200,7 @@ export default function Home() {
       const actual = consumed[key] || 0;
       const gap = target3Days - actual;
       const isShortage = gap > 0;
-      const proposal = NUTRIENT_FOOD_PROPOSALS[key];
+      const proposals = NUTRIENT_FOOD_PROPOSALS[key] || [];
 
       nutrientList.push({
         key,
@@ -151,14 +209,7 @@ export default function Home() {
         target: Math.round(target3Days * 10) / 10,
         unit: NUTRIENT_LABELS[key]?.unit || "",
         gap: isShortage ? Math.round(gap * 10) / 10 : 0,
-        proposal: proposal
-          ? {
-              food_name: proposal.food,
-              base_unit: proposal.base_unit,
-              base_amount: proposal.base_amount,
-              reason: proposal.reason,
-            }
-          : null,
+        proposals: proposals,
       });
 
       if (isShortage) {
@@ -169,7 +220,7 @@ export default function Home() {
     const advice =
       shortageNames.length === 0
         ? "直近3日間の主要な栄養素はすべて充足されています。良好なバランスです。"
-        : `直近3日間で特に「${shortageNames.slice(0, 3).join("・")}」が不足しています。各カードをタップして目安補給量を確認できます。`;
+        : `直近3日間で特に「${shortageNames.slice(0, 3).join("・")}」が不足しています。各カードをタップして補給食材と目安量を確認できます。`;
 
     setRecommendations({
       advice,
@@ -278,14 +329,24 @@ export default function Home() {
             <h1 className="text-base font-bold tracking-tight">3-Day Nutrition</h1>
             <p className="text-[10px] text-gray-500">直近72時間の記録: {validRecordCount}件 / 全{allRecords.length}件</p>
           </div>
-          <button
-            onClick={() => setIsHistoryOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium active:scale-95 transition-all"
-            title="過去の記録と管理"
-          >
-            <Calendar className="w-4 h-4 text-emerald-600" />
-            <span>履歴・管理</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setIsHistoryOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium active:scale-95 transition-all"
+              title="履歴カレンダー"
+            >
+              <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+              <span>履歴</span>
+            </button>
+            <button
+              onClick={() => setIsBackupOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium active:scale-95 transition-all"
+              title="バックアップ管理"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-600" />
+              <span>データ</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -325,6 +386,12 @@ export default function Home() {
         onClose={() => setIsHistoryOpen(false)}
         records={allRecords}
         onDeleteRecord={handleDeleteRecord}
+      />
+
+      <BackupModal
+        isOpen={isBackupOpen}
+        onClose={() => setIsBackupOpen(false)}
+        records={allRecords}
         onImportRecords={handleImportRecords}
       />
     </main>
