@@ -48,22 +48,25 @@ const ZERO_NUTRIENTS: NutrientTargets = {
   magnesium_mg: 0,
 };
 
-// 全14項目の補給食材マスターデータ
-const NUTRIENT_FOOD_PROPOSALS: Record<string, { food: string; portion: string; reason: string }> = {
-  protein_g: { food: "鶏むね肉・ゆで卵・納豆", portion: "1食分", reason: "筋肉や皮膚、血液の材料となる良質なタンパク質を素早く補給できます。" },
-  fat_g: { food: "アボカド・素焼きナッツ・オリーブ油", portion: "手のひら1杯", reason: "細胞膜やホルモンの生成を助ける良質な不飽和脂肪酸を含みます。" },
-  carbs_g: { food: "玄米・オートミール・さつまいも", portion: "茶碗1杯", reason: "食物繊維を含み、緩やかにエネルギーに変わる良質な炭水化物です。" },
-  fiber_g: { food: "オートミール・ごぼう・わかめ", portion: "1小鉢", reason: "腸内環境を整え、糖質や脂質の吸収を穏やかにします。" },
-  vitamin_a_ug: { food: "にんじん・ほうれん草・かぼちゃ", portion: "小鉢1杯", reason: "緑黄色野菜に含まれるβカロテンで皮膚や粘膜の健康を保ちます。" },
-  vitamin_b1_mg: { food: "豚ヒレ肉・大豆製品・玄米", portion: "1品", reason: "炭水化物をエネルギーへと円滑に変換する代謝をサポートします。" },
-  vitamin_b2_mg: { food: "納豆・うなぎ・卵", portion: "1パック", reason: "脂質の代謝を助け、口内炎予防や皮膚の健康維持に関与します。" },
-  vitamin_c_mg: { food: "ブロッコリー・キウイ・パプリカ", portion: "1個または小皿1杯", reason: "熱に強いビタミンCが豊富で、コラーゲン合成と抗酸化を助けます。" },
-  vitamin_d_ug: { food: "鮭・さんま・干し椎茸", portion: "1切れ", reason: "カルシウムの腸管吸収を促進し、骨の健康維持に必須です。" },
-  calcium_mg: { food: "木綿豆腐・しらす・ヨーグルト", portion: "1パック", reason: "骨や歯の形成だけでなく、筋肉のスムーズな収縮にも関与します。" },
-  iron_mg: { food: "小松菜・豚レバー・あさり", portion: "1品", reason: "全身に酸素を運ぶヘモグロビンの構成成分となり疲労を防ぎます。" },
-  zinc_mg: { food: "牡蠣・牛肉赤身・ナッツ類", portion: "手のひら1杯", reason: "細胞分裂や新陳代謝、味覚と免疫機能の正常化に寄与します。" },
-  potassium_mg: { food: "バナナ・アボカド・ほうれん草", portion: "1本または1小鉢", reason: "余分な塩分（ナトリウム）の排出を促し、水分バランスを保ちます。" },
-  magnesium_mg: { food: "純ココア・ひじき・アーモンド", portion: "適量", reason: "300種以上の体内酵素の働きを助け、神経や筋肉の緊張を和らげます。" },
+// 補給食材マスターデータ（標準量と栄養含有量を定義）
+const NUTRIENT_FOOD_PROPOSALS: Record<
+  string,
+  { food: string; base_unit: string; base_amount: number; reason: string }
+> = {
+  protein_g: { food: "鶏むね肉", base_unit: "100g", base_amount: 23.3, reason: "良質なタンパク質を効率よく補給できます。" },
+  fat_g: { food: "素焼きアーモンド", base_unit: "10粒(10g)", base_amount: 5.4, reason: "細胞膜の健康を保つ不飽和脂肪酸を含みます。" },
+  carbs_g: { food: "玄米ごはん", base_unit: "1杯(150g)", base_amount: 53.4, reason: "緩やかにエネルギーに変わる良質な炭水化物です。" },
+  fiber_g: { food: "ごぼう", base_unit: "100g", base_amount: 5.7, reason: "水溶性・不溶性食物繊維を含み腸内環境を整えます。" },
+  vitamin_a_ug: { food: "にんじん", base_unit: "半本(50g)", base_amount: 360, reason: "βカロテンが豊富で粘膜や皮膚の健康を維持します。" },
+  vitamin_b1_mg: { food: "豚ヒレ肉", base_unit: "100g", base_amount: 1.32, reason: "糖質の代謝を促しエネルギー生成をサポートします。" },
+  vitamin_b2_mg: { food: "納豆", base_unit: "1パック(50g)", base_amount: 0.28, reason: "脂質代謝に関与し、口内炎予防などをサポートします。" },
+  vitamin_c_mg: { food: "キウイフルーツ", base_unit: "1個(100g)", base_amount: 71, reason: "コラーゲン生成と抗酸化作用を助けるビタミンCが豊富です。" },
+  vitamin_d_ug: { food: "鮭", base_unit: "1切れ(100g)", base_amount: 32, reason: "カルシウムの吸収率を高め骨の健康に不可欠です。" },
+  calcium_mg: { food: "木綿豆腐", base_unit: "1/2丁(150g)", base_amount: 130, reason: "骨や歯の健康維持と筋肉収縮に必要なカルシウム源です。" },
+  iron_mg: { food: "小松菜", base_unit: "100g", base_amount: 2.8, reason: "ヘモグロビン形成に関与し酸欠による疲労を防ぎます。" },
+  zinc_mg: { food: "牛もも赤身肉", base_unit: "100g", base_amount: 4.2, reason: "新陳代謝や免疫機能の維持に欠かせない微量ミネラルです。" },
+  potassium_mg: { food: "バナナ", base_unit: "1本(100g)", base_amount: 360, reason: "ナトリウムの排出を促し体内の水分バランスを調整します。" },
+  magnesium_mg: { food: "素焼きアーモンド", base_unit: "10粒(12g)", base_amount: 37, reason: "酵素反応を助け神経や筋肉の働きを調整します。" },
 };
 
 const NUTRIENT_LABELS: Record<keyof NutrientTargets, { name: string; unit: string }> = {
@@ -151,7 +154,8 @@ export default function Home() {
         proposal: proposal
           ? {
               food_name: proposal.food,
-              portion: proposal.portion,
+              base_unit: proposal.base_unit,
+              base_amount: proposal.base_amount,
               reason: proposal.reason,
             }
           : null,
@@ -165,7 +169,7 @@ export default function Home() {
     const advice =
       shortageNames.length === 0
         ? "直近3日間の主要な栄養素はすべて充足されています。良好なバランスです。"
-        : `直近3日間で特に「${shortageNames.slice(0, 3).join("・")}」が不足しています。各栄養素カードをタップするとおすすめ補給食材を確認できます。`;
+        : `直近3日間で特に「${shortageNames.slice(0, 3).join("・")}」が不足しています。各カードをタップして目安補給量を確認できます。`;
 
     setRecommendations({
       advice,
@@ -252,6 +256,14 @@ export default function Home() {
     generateRecommendationsLocally(updated3Days);
   };
 
+  const handleImportRecords = (importedRecords: MealRecord[]) => {
+    setAllRecords(importedRecords);
+    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(importedRecords));
+
+    const updated3Days = calculate3DaysConsumed(importedRecords);
+    generateRecommendationsLocally(updated3Days);
+  };
+
   const validRecordCount = allRecords.filter((r) => {
     if (!r?.consumedAt) return false;
     const t = new Date(r.consumedAt).getTime();
@@ -269,10 +281,10 @@ export default function Home() {
           <button
             onClick={() => setIsHistoryOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium active:scale-95 transition-all"
-            title="過去の記録をカレンダーで確認"
+            title="過去の記録と管理"
           >
             <Calendar className="w-4 h-4 text-emerald-600" />
-            <span>履歴</span>
+            <span>履歴・管理</span>
           </button>
         </div>
       </header>
@@ -313,6 +325,7 @@ export default function Home() {
         onClose={() => setIsHistoryOpen(false)}
         records={allRecords}
         onDeleteRecord={handleDeleteRecord}
+        onImportRecords={handleImportRecords}
       />
     </main>
   );

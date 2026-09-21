@@ -1,65 +1,83 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef } from "react";
+import { X, Trash2, Calendar, Download, Upload } from "lucide-react";
 import { MealRecord } from "@/types/nutrition";
-import { X, Calendar as CalendarIcon, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
-interface Props {
+interface HistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   records: MealRecord[];
   onDeleteRecord: (id: string) => void;
+  onImportRecords?: (importedRecords: MealRecord[]) => void;
 }
 
-// 日付を "YYYY-MM-DD" 形式に変換
-function formatDateToKey(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-export function HistoryModal({ isOpen, onClose, records, onDeleteRecord }: Props) {
-  const [selectedDateStr, setSelectedDateStr] = useState<string>(
-    formatDateToKey(new Date())
-  );
+export const HistoryModal: React.FC<HistoryModalProps> = ({
+  isOpen,
+  onClose,
+  records,
+  onDeleteRecord,
+  onImportRecords,
+}) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  // 選択日の前日・翌日に移動
-  const changeDate = (days: number) => {
-    const current = new Date(selectedDateStr);
-    current.setDate(current.getDate() + days);
-    setSelectedDateStr(formatDateToKey(current));
+  // JSONエクスポート処理
+  const handleExport = () => {
+    if (records.length === 0) {
+      alert("保存されている記録がありません。");
+      return;
+    }
+    const dataStr =
+      "data:text/json;charset=utf-8," +
+      encodeURIComponent(JSON.stringify(records, null, 2));
+    const downloadAnchor = document.createElement("a");
+    const today = new Date().toISOString().split("T")[0];
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `nutrition_backup_${today}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
   };
 
-  // 選択された日付の食事レコードを抽出（新しい時間順）
-  const dayRecords = records.filter((r) => {
-    if (!r?.consumedAt) return false;
-    const itemDate = new Date(r.consumedAt);
-    return formatDateToKey(itemDate) === selectedDateStr;
-  }).sort((a, b) => new Date(b.consumedAt).getTime() - new Date(a.consumedAt).getTime());
+  // JSONインポート処理
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  // 選択日の合計カロリー・PFC集計
-  const dayTotal = dayRecords.reduce(
-    (acc, r) => {
-      acc.calories += r.nutrients?.calories_kcal || 0;
-      acc.protein += r.nutrients?.protein_g || 0;
-      acc.fat += r.nutrients?.fat_g || 0;
-      acc.carbs += r.nutrients?.carbs_g || 0;
-      return acc;
-    },
-    { calories: 0, protein: 0, fat: 0, carbs: 0 }
-  );
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+
+        if (!Array.isArray(parsed)) {
+          alert("フォーマットが正しくありません。配列形式のJSONファイルを指定してください。");
+          return;
+        }
+
+        if (onImportRecords) {
+          onImportRecords(parsed);
+          alert(`${parsed.length} 件の記録をインポートしました。`);
+        }
+      } catch (err) {
+        alert("JSONファイルの読み込みに失敗しました。正しいファイル形式か確認してください。");
+      }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl h-[85vh] flex flex-col shadow-xl animate-in slide-in-from-bottom duration-200">
-        {/* ヘッダー */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <CalendarIcon className="w-5 h-5 text-emerald-600" />
-            <h2 className="text-sm font-bold text-gray-900">食事の記録履歴</h2>
+      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 shadow-xl max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-200">
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-3">
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-4 h-4 text-emerald-600" />
+            <h3 className="text-sm font-bold text-gray-900">食事記録・データ管理</h3>
           </div>
           <button
             onClick={onClose}
@@ -69,94 +87,80 @@ export function HistoryModal({ isOpen, onClose, records, onDeleteRecord }: Props
           </button>
         </div>
 
-        {/* 日付切り替えバー */}
-        <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-100">
-          <button
-            onClick={() => changeDate(-1)}
-            className="p-1.5 rounded-lg text-gray-500 hover:bg-white active:scale-95 transition-all"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
-          <div className="flex items-center gap-2">
+        {/* バックアップ操作セクション */}
+        <div className="bg-gray-50 border border-gray-200/80 rounded-xl p-3 mb-3 space-y-2">
+          <div className="text-[11px] font-semibold text-gray-700">データバックアップ (JSON)</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleExport}
+              className="flex items-center justify-center gap-1 py-1.5 px-2 bg-white border border-gray-300 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-100 active:scale-95 transition-all"
+            >
+              <Download className="w-3.5 h-3.5 text-gray-600" />
+              <span>エクスポート</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center gap-1 py-1.5 px-2 bg-white border border-gray-300 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-100 active:scale-95 transition-all"
+            >
+              <Upload className="w-3.5 h-3.5 text-gray-600" />
+              <span>インポート</span>
+            </button>
             <input
-              type="date"
-              value={selectedDateStr}
-              onChange={(e) => setSelectedDateStr(e.target.value)}
-              className="bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              type="file"
+              ref={fileInputRef}
+              accept=".json"
+              onChange={handleFileChange}
+              className="hidden"
             />
           </div>
-
-          <button
-            onClick={() => changeDate(1)}
-            className="p-1.5 rounded-lg text-gray-500 hover:bg-white active:scale-95 transition-all"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
         </div>
 
-        {/* 選択日の合計値 */}
-        <div className="px-4 py-2 bg-emerald-50/50 border-b border-emerald-100/60 flex items-center justify-between text-xs">
-          <span className="text-[11px] font-medium text-emerald-800">1日の合計</span>
-          <div className="flex gap-2.5 text-[11px] font-bold text-emerald-950">
-            <span>{Math.round(dayTotal.calories)} kcal</span>
-            <span>P: {Math.round(dayTotal.protein * 10) / 10}g</span>
-            <span>F: {Math.round(dayTotal.fat * 10) / 10}g</span>
-            <span>C: {Math.round(dayTotal.carbs * 10) / 10}g</span>
-          </div>
-        </div>
-
-        {/* 食事履歴リスト */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {dayRecords.length === 0 ? (
-            <div className="h-40 flex flex-col items-center justify-center text-gray-400 text-xs">
-              この日の食事記録はありません
-            </div>
+        {/* 履歴一覧 */}
+        <div className="overflow-y-auto flex-1 space-y-2 pr-1">
+          {records.length === 0 ? (
+            <p className="text-xs text-gray-500 text-center py-8">保存された記録はありません</p>
           ) : (
-            dayRecords.map((item) => {
-              const timeStr = new Date(item.consumedAt).toLocaleTimeString("ja-JP", {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-              const cal = Math.round(item.nutrients?.calories_kcal || 0);
-              const p = Math.round((item.nutrients?.protein_g || 0) * 10) / 10;
-              const f = Math.round((item.nutrients?.fat_g || 0) * 10) / 10;
-              const c = Math.round((item.nutrients?.carbs_g || 0) * 10) / 10;
+            records.map((rec) => {
+              const dateStr = rec.consumedAt
+                ? new Date(rec.consumedAt).toLocaleString("ja-JP", {
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "日時不明";
 
               return (
                 <div
-                  key={item.id}
-                  className="bg-white border border-gray-200/80 rounded-xl p-3 shadow-sm space-y-2"
+                  key={rec.id}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs"
                 >
-                  <div className="flex items-center justify-between text-[11px] text-gray-500 border-b border-gray-50 pb-1.5">
-                    <span className="font-bold text-gray-700">{timeStr}</span>
-                    <button
-                      onClick={() => {
-                        if (confirm("この記録を削除しますか？")) {
-                          onDeleteRecord(item.id);
-                        }
-                      }}
-                      className="text-gray-400 hover:text-red-600 p-1 transition-colors"
-                      title="削除"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-gray-800">{rec.mealSummary || rec.inputText}</div>
+                    <div className="text-[10px] text-gray-400">{dateStr}</div>
                   </div>
-                  <div className="text-xs font-semibold text-gray-800 leading-snug">
-                    {item.mealSummary}
-                  </div>
-                  <div className="flex items-center gap-2 pt-0.5 text-[10px] text-gray-500 font-medium">
-                    <span className="text-gray-700 font-bold">{cal} kcal</span>
-                    <span>P: {p}g</span>
-                    <span>F: {f}g</span>
-                    <span>C: {c}g</span>
-                  </div>
+                  <button
+                    onClick={() => onDeleteRecord(rec.id)}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                    title="削除"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               );
             })
           )}
         </div>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-4 py-2.5 bg-gray-900 text-white rounded-xl text-xs font-semibold hover:bg-black transition-all"
+        >
+          閉じる
+        </button>
       </div>
     </div>
   );
-}
+};
