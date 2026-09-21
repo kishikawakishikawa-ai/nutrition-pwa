@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useRef } from "react";
-import { X, Download, Upload, Database } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { X, Download, Upload, Database, Copy, Check } from "lucide-react";
 import { MealRecord } from "@/types/nutrition";
 
 interface BackupModalProps {
@@ -18,10 +18,11 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   onImportRecords,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isCopied, setIsCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (records.length === 0) {
       alert("保存されている記録がありません。");
       return;
@@ -29,23 +30,49 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 
     try {
       const jsonStr = JSON.stringify(records, null, 2);
+      const today = new Date().toISOString().split("T")[0];
+      const filename = `nutrition_backup_${today}.json`;
+      const file = new File([jsonStr], filename, { type: "application/json" });
+
+      // iOS/Web Share API 対応（共有ダイアログ経由で「"ファイル"に保存」を呼び出す）
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "食事記録バックアップ",
+        });
+        return;
+      }
+
+      // フォールバック: ブラウザ直接ダウンロード
       const blob = new Blob([jsonStr], { type: "application/json" });
       const url = URL.createObjectURL(blob);
-
       const downloadAnchor = document.createElement("a");
-      const today = new Date().toISOString().split("T")[0];
       downloadAnchor.href = url;
-      downloadAnchor.download = `nutrition_backup_${today}.json`;
+      downloadAnchor.download = filename;
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
       URL.revokeObjectURL(url);
+    } catch (error: any) {
+      // ユーザーによる共有キャンセルの場合は警告を出さない
+      if (error?.name !== "AbortError") {
+        alert("エクスポート処理に失敗しました。下の「テキストとしてコピー」をお試しください。");
+      }
+    }
+  };
 
-      alert(
-        "バックアップファイルの保存処理を実行しました。\n「ファイル」アプリ内の「ダウンロード」フォルダをご確認ください。"
-      );
-    } catch (error) {
-      alert("エクスポート処理に失敗しました。");
+  const handleCopyText = async () => {
+    if (records.length === 0) {
+      alert("保存されている記録がありません。");
+      return;
+    }
+    try {
+      const jsonStr = JSON.stringify(records, null, 2);
+      await navigator.clipboard.writeText(jsonStr);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      alert("コピーに失敗しました。");
     }
   };
 
@@ -104,7 +131,25 @@ export const BackupModal: React.FC<BackupModalProps> = ({
             className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 active:scale-[0.98] transition-all"
           >
             <Download className="w-4 h-4" />
-            <span>JSONデータのエクスポート（保存）</span>
+            <span>JSONデータのエクスポート（ファイル保存）</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopyText}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-gray-100 text-gray-700 rounded-xl text-xs font-medium hover:bg-gray-200 active:scale-[0.98] transition-all"
+          >
+            {isCopied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="text-emerald-700 font-bold">クリップボードにコピーしました</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 text-gray-500" />
+                <span>JSONテキストをコピー</span>
+              </>
+            )}
           </button>
 
           <button
