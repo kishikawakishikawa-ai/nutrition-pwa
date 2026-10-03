@@ -5,7 +5,7 @@ import { X, Utensils } from "lucide-react";
 import { MealRecord } from "@/types/nutrition";
 
 interface MealNutrientModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   record?: MealRecord | null;
   meal?: MealRecord | null;
@@ -13,7 +13,7 @@ interface MealNutrientModalProps {
 }
 
 export const MealNutrientModal: React.FC<MealNutrientModalProps> = ({
-  isOpen,
+  isOpen = true,
   onClose,
   record,
   meal,
@@ -36,7 +36,7 @@ export const MealNutrientModal: React.FC<MealNutrientModalProps> = ({
     return 0;
   };
 
-  const calories = getVal(["calories", "エネルギー", "calories_kcal"]);
+  const calories = getVal(["calories", "calories_kcal", "エネルギー"]);
   const protein = getVal(["protein", "protein_g", "タンパク質"]);
   const fat = getVal(["fat", "fat_g", "脂質"]);
   const carbs = getVal(["carbs", "carbs_g", "炭水化物"]);
