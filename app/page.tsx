@@ -49,7 +49,6 @@ const ZERO_NUTRIENTS: NutrientTargets = {
   magnesium_mg: 0,
 };
 
-// 全14栄養素（各3アイテムの食材提案マスター）
 const NUTRIENT_FOOD_PROPOSALS: Record<
   string,
   { food: string; base_unit: string; base_amount: number; reason: string }[]
@@ -143,6 +142,17 @@ const NUTRIENT_LABELS: Record<keyof NutrientTargets, { name: string; unit: strin
   zinc_mg: { name: "亜鉛", unit: "mg" },
   potassium_mg: { name: "カリウム", unit: "mg" },
   magnesium_mg: { name: "マグネシウム", unit: "mg" },
+  calories: { name: "エネルギー", unit: "kcal" },
+  protein: { name: "タンパク質", unit: "g" },
+  fat: { name: "脂質", unit: "g" },
+  carbs: { name: "炭水化物", unit: "g" },
+  fiber: { name: "食物繊維", unit: "g" },
+  salt_g: { name: "食塩相当量", unit: "g" },
+  エネルギー: { name: "エネルギー", unit: "kcal" },
+  タンパク質: { name: "タンパク質", unit: "g" },
+  脂質: { name: "脂質", unit: "g" },
+  炭水化物: { name: "炭水化物", unit: "g" },
+  食物繊維: { name: "食物繊維", unit: "g" },
 };
 
 export default function Home() {
@@ -159,19 +169,21 @@ export default function Home() {
 
     const seventyTwoHoursAgo = Date.now() - 72 * 60 * 60 * 1000;
     const recentRecords = records.filter((r) => {
-      if (!r?.consumedAt) return false;
-      const t = new Date(r.consumedAt).getTime();
+      const ts = r?.consumedAt || r?.timestamp || r?.createdAt;
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
       return !isNaN(t) && t >= seventyTwoHoursAgo;
     });
 
-    const total: NutrientTargets = { ...ZERO_NUTRIENTS };
+    const total: Record<string, number> = { ...ZERO_NUTRIENTS };
     for (const record of recentRecords) {
-      if (!record?.nutrients) continue;
-      for (const key of Object.keys(total) as (keyof NutrientTargets)[]) {
-        total[key] += Number(record.nutrients[key]) || 0;
+      const nut = record?.nutrients as Record<string, number> | undefined;
+      if (!nut) continue;
+      for (const key of Object.keys(total)) {
+        total[key] = (total[key] || 0) + (Number(nut[key]) || 0);
       }
     }
-    return total;
+    return total as NutrientTargets;
   };
 
   const generateRecommendationsLocally = (consumed: NutrientTargets) => {
@@ -195,25 +207,30 @@ export default function Home() {
       "magnesium_mg",
     ];
 
+    const consumedRec = consumed as Record<string, number>;
+    const defaultRec = DEFAULT_DAILY_TARGET as Record<string, number>;
+
     for (const key of targetKeys) {
-      const target3Days = DEFAULT_DAILY_TARGET[key] * 3;
-      const actual = consumed[key] || 0;
+      const target3Days = (defaultRec[key] || 0) * 3;
+      const actual = consumedRec[key] || 0;
       const gap = target3Days - actual;
       const isShortage = gap > 0;
       const proposals = NUTRIENT_FOOD_PROPOSALS[key] || [];
 
+      const labelInfo = NUTRIENT_LABELS[key] || { name: key, unit: "" };
+
       nutrientList.push({
         key,
-        nutrient: NUTRIENT_LABELS[key]?.name || key,
+        nutrient: labelInfo.name,
         consumed: Math.round(actual * 10) / 10,
         target: Math.round(target3Days * 10) / 10,
-        unit: NUTRIENT_LABELS[key]?.unit || "",
+        unit: labelInfo.unit,
         gap: isShortage ? Math.round(gap * 10) / 10 : 0,
         proposals: proposals,
       });
 
       if (isShortage) {
-        shortageNames.push(NUTRIENT_LABELS[key]?.name || key);
+        shortageNames.push(labelInfo.name);
       }
     }
 
@@ -264,12 +281,13 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "食事解析に失敗しました");
 
-      const singleMealNutrients: NutrientTargets = { ...ZERO_NUTRIENTS };
+      const singleMealNutrients: Record<string, number> = { ...ZERO_NUTRIENTS };
       if (data.items && Array.isArray(data.items)) {
         for (const item of data.items) {
           if (!item.nutrients) continue;
-          for (const key of Object.keys(singleMealNutrients) as (keyof NutrientTargets)[]) {
-            singleMealNutrients[key] += Number(item.nutrients[key]) || 0;
+          for (const key of Object.keys(singleMealNutrients)) {
+            singleMealNutrients[key] =
+              (singleMealNutrients[key] || 0) + (Number(item.nutrients[key]) || 0);
           }
         }
       }
@@ -279,7 +297,7 @@ export default function Home() {
         consumedAt: new Date(consumedAtStr).toISOString(),
         inputText: text,
         mealSummary: data.meal_summary || text,
-        nutrients: singleMealNutrients,
+        nutrients: singleMealNutrients as NutrientTargets,
       };
 
       const updatedRecords = [newRecord, ...allRecords];
@@ -316,8 +334,9 @@ export default function Home() {
   };
 
   const validRecordCount = allRecords.filter((r) => {
-    if (!r?.consumedAt) return false;
-    const t = new Date(r.consumedAt).getTime();
+    const ts = r?.consumedAt || r?.timestamp || r?.createdAt;
+    if (!ts) return false;
+    const t = new Date(ts).getTime();
     return !isNaN(t) && t >= Date.now() - 72 * 60 * 60 * 1000;
   }).length;
 

@@ -1,15 +1,10 @@
 export interface NutrientTargets {
-  calories?: number;
   calories_kcal?: number;
-  protein?: number;
   protein_g?: number;
-  fat?: number;
   fat_g?: number;
-  carbs?: number;
   carbs_g?: number;
-  fiber?: number;
   fiber_g?: number;
-  salt_g?: number;
+  salt_equivalent_g?: number;
   vitamin_a_ug?: number;
   vitamin_b1_mg?: number;
   vitamin_b2_mg?: number;
@@ -20,6 +15,14 @@ export interface NutrientTargets {
   zinc_mg?: number;
   potassium_mg?: number;
   magnesium_mg?: number;
+
+  // 互換用プロパティ
+  calories?: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+  fiber?: number;
+  salt_g?: number;
   エネルギー?: number;
   タンパク質?: number;
   脂質?: number;
@@ -30,9 +33,12 @@ export interface NutrientTargets {
 export interface MealRecord {
   id: string;
   timestamp?: string | number | Date;
+  consumedAt?: string;
   createdAt?: string | number | Date;
   date?: string;
   foodText?: string;
+  inputText?: string;
+  mealSummary?: string;
   rawText?: string;
   text?: string;
   nutrients?: NutrientTargets | Record<string, any>;
