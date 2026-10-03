@@ -13,7 +13,6 @@ export interface NutrientTargets {
   脂質?: number;
   炭水化物?: number;
   食物繊維?: number;
-  [key: string]: any;
 }
 
 export interface MealRecord {
@@ -51,7 +50,7 @@ export function getTopDeficiencies(
 
   const results: DeficiencyInfo[] = [];
 
-  if (typeof intakeData === "object" && intakeData !== null && !Array.isArray(intakeData)) {
+  if (typeof intakeData === "object" && intakeData !== null) {
     for (const [key, val] of Object.entries(intakeData)) {
       const currentVal = typeof val === "number" ? val : parseFloat(val as string);
       if (isNaN(currentVal)) continue;
