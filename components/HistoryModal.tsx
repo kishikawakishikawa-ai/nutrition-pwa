@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Calendar, ChevronRight, Utensils } from "lucide-react";
+import { X, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronRight as ArrowRight, Utensils } from "lucide-react";
 import { MealRecord } from "@/types/nutrition";
 
 interface HistoryModalProps {
@@ -11,36 +11,109 @@ interface HistoryModalProps {
   onDeleteRecord?: (id: string) => void;
 }
 
+// 栄養素キーの日本語名および単位の対応マップ
+const NUTRIENT_NAME_MAP: Record<string, { name: string; unit: string }> = {
+  calories_kcal: { name: "エネルギー", unit: "kcal" },
+  calories: { name: "エネルギー", unit: "kcal" },
+  エネルギー: { name: "エネルギー", unit: "kcal" },
+  protein_g: { name: "タンパク質", unit: "g" },
+  protein: { name: "タンパク質", unit: "g" },
+  タンパク質: { name: "タンパク質", unit: "g" },
+  fat_g: { name: "脂質", unit: "g" },
+  fat: { name: "脂質", unit: "g" },
+  脂質: { name: "脂質", unit: "g" },
+  carbs_g: { name: "炭水化物", unit: "g" },
+  carbs: { name: "炭水化物", unit: "g" },
+  炭水化物: { name: "炭水化物", unit: "g" },
+  fiber_g: { name: "食物繊維", unit: "g" },
+  fiber: { name: "食物繊維", unit: "g" },
+  食物繊維: { name: "食物繊維", unit: "g" },
+  salt_equivalent_g: { name: "食塩相当量", unit: "g" },
+  salt_g: { name: "食塩相当量", unit: "g" },
+  vitamin_a_ug: { name: "ビタミンA", unit: "μg" },
+  vitamin_b1_mg: { name: "ビタミンB1", unit: "mg" },
+  vitamin_b2_mg: { name: "ビタミンB2", unit: "mg" },
+  vitamin_c_mg: { name: "ビタミンC", unit: "mg" },
+  vitamin_d_ug: { name: "ビタミンD", unit: "μg" },
+  calcium_mg: { name: "カルシウム", unit: "mg" },
+  iron_mg: { name: "鉄分", unit: "mg" },
+  zinc_mg: { name: "亜鉛", unit: "mg" },
+  potassium_mg: { name: "カリウム", unit: "mg" },
+  magnesium_mg: { name: "マグネシウム", unit: "mg" },
+};
+
 export const HistoryModal: React.FC<HistoryModalProps> = ({
   isOpen,
   onClose,
   records,
   onDeleteRecord,
 }) => {
+  // 今日の日付 (YYYY-MM-DD) を初期値として保持
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
   const [selectedRecord, setSelectedRecord] = useState<MealRecord | null>(null);
 
   if (!isOpen) return null;
 
-  // 日付の取得処理ヘルパー
+  // 記録の日時を Date オブジェクトで取得する関数
   const getRecordDate = (rec: MealRecord): Date => {
-    const rawDate = rec.timestamp || rec.createdAt || rec.date;
-    if (!rawDate) return new Date();
-    return new Date(rawDate);
+    const ts = rec.consumedAt || rec.timestamp || rec.createdAt || rec.date;
+    if (!ts) return new Date();
+    return new Date(ts);
   };
 
-  // 日付順（新しい順）に並べ替え
-  const sortedRecords = [...records].sort(
-    (a, b) => getRecordDate(b).getTime() - getRecordDate(a).getTime()
-  );
+  // 食事内容テキストを確実に取得する関数
+  const getRecordText = (rec: MealRecord): string => {
+    return (
+      rec.mealSummary ||
+      rec.inputText ||
+      rec.foodText ||
+      rec.rawText ||
+      rec.text ||
+      "食事内容の記録"
+    );
+  };
+
+  // 栄養素の数値を安全に取得する関数
+  const getNutrientVal = (nutrients: any, keys: string[]): number => {
+    if (!nutrients) return 0;
+    for (const key of keys) {
+      if (nutrients[key] !== undefined && nutrients[key] !== null) {
+        const val = Number(nutrients[key]);
+        if (!isNaN(val)) return val;
+      }
+    }
+    return 0;
+  };
+
+  // 日付の切り替え操作
+  const handleDateChange = (days: number) => {
+    const current = new Date(selectedDateStr);
+    current.setDate(current.getDate() + days);
+    setSelectedDateStr(current.toISOString().split("T")[0]);
+  };
+
+  // 選択日の記録のみを抽出（時間順：新しい順）
+  const filteredRecords = records
+    .filter((rec) => {
+      const recDate = getRecordDate(rec);
+      const year = recDate.getFullYear();
+      const month = String(recDate.getMonth() + 1).padStart(2, "0");
+      const day = String(recDate.getDate()).padStart(2, "0");
+      const formattedRecDate = `${year}-${month}-${day}`;
+      return formattedRecDate === selectedDateStr;
+    })
+    .sort((a, b) => getRecordDate(b).getTime() - getRecordDate(a).getTime());
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white w-full max-w-md h-[85vh] sm:h-[75vh] rounded-t-3xl sm:rounded-2xl p-5 shadow-xl flex flex-col space-y-4 animate-in slide-in-from-bottom duration-200">
+      <div className="bg-white w-full max-w-md h-[85vh] sm:h-[75vh] rounded-t-3xl sm:rounded-2xl p-5 shadow-xl flex flex-col space-y-3 animate-in slide-in-from-bottom duration-200">
         {/* ヘッダー */}
         <div className="flex items-center justify-between border-b border-gray-100 pb-3 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-emerald-600" />
-            <h3 className="text-base font-bold text-gray-900">食事記録履歴</h3>
+            <CalendarIcon className="w-5 h-5 text-emerald-600" />
+            <h3 className="text-base font-bold text-gray-900">食事履歴カレンダー</h3>
             <span className="text-xs text-gray-500">（全{records.length}件）</span>
           </div>
           <button
@@ -51,27 +124,56 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
           </button>
         </div>
 
-        {/* 履歴リスト（付箋カード一覧） */}
+        {/* 日付選択バー */}
+        <div className="bg-gray-50 border border-gray-200/80 rounded-xl p-2 flex items-center justify-between flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => handleDateChange(-1)}
+            className="p-1.5 text-gray-600 hover:bg-gray-200/70 rounded-lg active:scale-95 transition-all"
+            title="前日"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={selectedDateStr}
+              onChange={(e) => setSelectedDateStr(e.target.value)}
+              className="bg-white border border-gray-300 text-gray-800 text-xs font-bold rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleDateChange(1)}
+            className="p-1.5 text-gray-600 hover:bg-gray-200/70 rounded-lg active:scale-95 transition-all"
+            title="翌日"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="text-[11px] font-semibold text-gray-500 px-1 flex justify-between items-center flex-shrink-0">
+          <span>{selectedDateStr} の記録</span>
+          <span>{filteredRecords.length}件</span>
+        </div>
+
+        {/* 1日分の履歴リスト（付箋カード一覧） */}
         <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-          {sortedRecords.length === 0 ? (
+          {filteredRecords.length === 0 ? (
             <div className="text-center py-12 text-gray-400 text-xs">
-              記録がありません
+              この日付の食事記録はありません
             </div>
           ) : (
-            sortedRecords.map((rec) => {
+            filteredRecords.map((rec) => {
               const dateObj = getRecordDate(rec);
-              const dateStr = `${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(
+              const timeStr = `${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(
                 dateObj.getHours()
               ).padStart(2, "0")}:${String(dateObj.getMinutes()).padStart(2, "0")}`;
 
-              const nutrients = (rec.nutrients || {}) as Record<string, any>;
-              const calories =
-                nutrients.calories ?? nutrients.エネルギー ?? nutrients.calories_kcal ?? 0;
-              const protein =
-                nutrients.protein ?? nutrients.protein_g ?? nutrients.タンパク質 ?? 0;
-
-              const displayText =
-                rec.foodText || rec.rawText || rec.text || "食事内容の記録";
+              const calories = getNutrientVal(rec.nutrients, ["calories", "エネルギー", "calories_kcal"]);
+              const protein = getNutrientVal(rec.nutrients, ["protein", "protein_g", "タンパク質"]);
 
               return (
                 <div
@@ -81,21 +183,21 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                 >
                   <div className="flex justify-between items-start mb-1.5">
                     <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-full">
-                      {dateStr}
+                      {timeStr}
                     </span>
                     <div className="flex items-center gap-1 text-xs text-amber-700 font-medium">
-                      <span>{Math.round(Number(calories) || 0)} kcal</span>
-                      <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition-transform" />
+                      <span>{Math.round(calories)} kcal</span>
+                      <ArrowRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition-transform" />
                     </div>
                   </div>
 
                   <p className="text-xs text-gray-800 font-medium line-clamp-2 leading-relaxed">
-                    {displayText}
+                    {getRecordText(rec)}
                   </p>
 
-                  {Number(protein) > 0 && (
+                  {protein > 0 && (
                     <div className="mt-2 pt-2 border-t border-amber-200/40 flex items-center justify-between text-[11px] text-gray-600">
-                      <span>タンパク質: {Math.round((Number(protein) || 0) * 10) / 10}g</span>
+                      <span>タンパク質: {Math.round(protein * 10) / 10}g</span>
                       <span className="text-[10px] text-amber-600">タップして詳細表示</span>
                     </div>
                   )}
@@ -144,31 +246,30 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
               <p className="text-xs text-gray-700 leading-relaxed font-medium">
-                {selectedRecord.foodText ||
-                  selectedRecord.rawText ||
-                  selectedRecord.text ||
-                  "食事内容の記録"}
+                {getRecordText(selectedRecord)}
               </p>
             </div>
 
-            {/* 栄養素テーブル */}
+            {/* 栄養素テーブル（日本語変換表示） */}
             <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
               <div className="text-xs font-bold text-gray-500 mb-2">栄養成分一覧</div>
               {selectedRecord.nutrients &&
               Object.keys(selectedRecord.nutrients).length > 0 ? (
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {Object.entries(selectedRecord.nutrients).map(([key, val]) => {
-                    const valueNum = typeof val === "number" ? val : parseFloat(val as string);
+                    const valueNum = typeof val === "number" ? val : parseFloat(val);
                     if (isNaN(valueNum)) return null;
+
+                    const mapped = NUTRIENT_NAME_MAP[key] || { name: key, unit: "" };
 
                     return (
                       <div
                         key={key}
                         className="flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-100"
                       >
-                        <span className="text-gray-600 font-medium">{key}</span>
+                        <span className="text-gray-600 font-medium">{mapped.name}</span>
                         <span className="font-bold text-gray-900">
-                          {Math.round(valueNum * 10) / 10}
+                          {Math.round(valueNum * 10) / 10} {mapped.unit}
                         </span>
                       </div>
                     );
