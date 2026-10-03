@@ -7,7 +7,6 @@ const genAI = new GoogleGenerativeAI(apiKey);
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    // meal_text と text のどちらで届いても取得できるように指定
     const text = body.meal_text || body.text;
 
     if (!text || typeof text !== "string" || text.trim() === "") {
@@ -17,8 +16,9 @@ export async function POST(req: Request) {
       );
     }
 
+    // Google APIの推奨モデル gemini-3.8-flash に更新
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-3.8-flash",
       generationConfig: {
         responseMimeType: "application/json",
       },

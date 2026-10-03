@@ -39,7 +39,7 @@ ${deficiencyDetails}
 `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.8-flash",
       contents: [prompt],
       config: {
         systemInstruction: "あなたは管理栄養士です。3日間の不足栄養素を補う食材と料理を具体的に提案してください。",
