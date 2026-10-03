@@ -6,16 +6,17 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 export async function POST(req: Request) {
   try {
-    const { text } = await req.json();
+    const body = await req.json();
+    // meal_text と text のどちらで届いても取得できるように指定
+    const text = body.meal_text || body.text;
 
-    if (!text || typeof text !== "string") {
+    if (!text || typeof text !== "string" || text.trim() === "") {
       return NextResponse.json(
         { error: "解析対象のテキストが提示されていません。" },
         { status: 400 }
       );
     }
 
-    // 利用可能な安定モデル名に変更
     const model = genAI.getGenerativeModel({
       model: "gemini-1.5-flash",
       generationConfig: {
@@ -23,22 +24,34 @@ export async function POST(req: Request) {
       },
     });
 
-    const prompt = `あなたは栄養管理アシスタントです。ユーザーが入力した食事内容を解析し、栄養素データを計算して以下のJSONフォーマットで返却してください。
-
-キー名は日本語・英語のいずれの指定でも処理できるように配慮してください。
+    const prompt = `あなたは栄養管理アシスタントです。以下の食事内容を解析し、含まれる食品アイテムごとの栄養素データを計算してJSON形式で返却してください。
 
 【返却フォーマット】
 {
-  "foodText": "食事内容のまとめ",
-  "nutrients": {
-    "エネルギー": 数値(kcal),
-    "タンパク質": 数値(g),
-    "脂質": 数値(g),
-    "炭水化物": 数値(g),
-    "食物繊維": 数値(g),
-    "ビタミンA": 数値,
-    "ビタミンB1": 数値
-  }
+  "meal_summary": "食事内容の要約",
+  "items": [
+    {
+      "name": "食品名",
+      "nutrients": {
+        "calories_kcal": 数値,
+        "protein_g": 数値,
+        "fat_g": 数値,
+        "carbs_g": 数値,
+        "fiber_g": 数値,
+        "salt_equivalent_g": 数値,
+        "vitamin_a_ug": 数値,
+        "vitamin_b1_mg": 数値,
+        "vitamin_b2_mg": 数値,
+        "vitamin_c_mg": 数値,
+        "vitamin_d_ug": 数値,
+        "calcium_mg": 数値,
+        "iron_mg": 数値,
+        "zinc_mg": 数値,
+        "potassium_mg": 数値,
+        "magnesium_mg": 数値
+      }
+    }
+  ]
 }
 
 解析対象の食事内容:
