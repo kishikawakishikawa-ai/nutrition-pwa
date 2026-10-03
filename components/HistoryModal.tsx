@@ -21,9 +21,16 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
   if (!isOpen) return null;
 
+  // 日付の取得処理ヘルパー
+  const getRecordDate = (rec: MealRecord): Date => {
+    const rawDate = rec.timestamp || rec.createdAt || rec.date;
+    if (!rawDate) return new Date();
+    return new Date(rawDate);
+  };
+
   // 日付順（新しい順）に並べ替え
   const sortedRecords = [...records].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    (a, b) => getRecordDate(b).getTime() - getRecordDate(a).getTime()
   );
 
   return (
@@ -52,14 +59,19 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
             </div>
           ) : (
             sortedRecords.map((rec) => {
-              const dateObj = new Date(rec.timestamp);
+              const dateObj = getRecordDate(rec);
               const dateStr = `${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(
                 dateObj.getHours()
               ).padStart(2, "0")}:${String(dateObj.getMinutes()).padStart(2, "0")}`;
 
-              // 主要栄養素の計算
-              const calories = rec.nutrients?.calories || rec.nutrients?.エネルギー || 0;
-              const protein = rec.nutrients?.protein || rec.nutrients?.タンパク質 || 0;
+              const nutrients = (rec.nutrients || {}) as Record<string, any>;
+              const calories =
+                nutrients.calories ?? nutrients.エネルギー ?? nutrients.calories_kcal ?? 0;
+              const protein =
+                nutrients.protein ?? nutrients.protein_g ?? nutrients.タンパク質 ?? 0;
+
+              const displayText =
+                rec.foodText || rec.rawText || rec.text || "食事内容の記録";
 
               return (
                 <div
@@ -72,18 +84,18 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                       {dateStr}
                     </span>
                     <div className="flex items-center gap-1 text-xs text-amber-700 font-medium">
-                      <span>{Math.round(calories)} kcal</span>
+                      <span>{Math.round(Number(calories) || 0)} kcal</span>
                       <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition-transform" />
                     </div>
                   </div>
 
                   <p className="text-xs text-gray-800 font-medium line-clamp-2 leading-relaxed">
-                    {rec.foodText || rec.rawText || "食事内容の記録"}
+                    {displayText}
                   </p>
 
-                  {protein > 0 && (
+                  {Number(protein) > 0 && (
                     <div className="mt-2 pt-2 border-t border-amber-200/40 flex items-center justify-between text-[11px] text-gray-600">
-                      <span>タンパク質: {Math.round(protein * 10) / 10}g</span>
+                      <span>タンパク質: {Math.round((Number(protein) || 0) * 10) / 10}g</span>
                       <span className="text-[10px] text-amber-600">タップして詳細表示</span>
                     </div>
                   )}
@@ -110,7 +122,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                 <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold mb-0.5">
                   <Utensils className="w-3.5 h-3.5" />
                   <span>
-                    {new Date(selectedRecord.timestamp).toLocaleString("ja-JP", {
+                    {getRecordDate(selectedRecord).toLocaleString("ja-JP", {
                       month: "numeric",
                       day: "numeric",
                       hour: "2-digit",
@@ -132,7 +144,10 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
               <p className="text-xs text-gray-700 leading-relaxed font-medium">
-                {selectedRecord.foodText || selectedRecord.rawText}
+                {selectedRecord.foodText ||
+                  selectedRecord.rawText ||
+                  selectedRecord.text ||
+                  "食事内容の記録"}
               </p>
             </div>
 
@@ -143,7 +158,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
               Object.keys(selectedRecord.nutrients).length > 0 ? (
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {Object.entries(selectedRecord.nutrients).map(([key, val]) => {
-                    const valueNum = typeof val === "number" ? val : parseFloat(val);
+                    const valueNum = typeof val === "number" ? val : parseFloat(val as string);
                     if (isNaN(valueNum)) return null;
 
                     return (
