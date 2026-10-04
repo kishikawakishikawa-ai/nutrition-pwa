@@ -261,34 +261,111 @@ export default function Home() {
     }
   }, []);
 
-  const handleRecordSubmit = async (text: string, consumedAtStr: string) => {
+    const handleRecordSubmit = async (text: string, consumedAtStr: string) => {
     if (isAnalyzing) return;
 
     setIsAnalyzing(true);
     setRateLimitMessage(null);
-    try {
-      const res = await fetch("/api/analyze-meal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meal_text: text }),
-      });
 
-      if (res.status === 429) {
-        setRateLimitMessage("APIの制限に達しました。1〜2分待ってからお試しください。");
+    try {
+      let res: Response | null = null;
+      let lastError: unknown = null;
+
+      // Vercel側でGeminiのRetry/Fallbackを行った後、
+      // それでも503だった場合だけ、クライアント側でも1回再試行する
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          res = await fetch("/api/analyze-meal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ meal_text: text }),
+          });
+
+          // 503の場合は1回だけ待って再試行
+          if (res.status === 503 && attempt === 0) {
+            setRateLimitMessage(
+              "解析が混み合っています。自動的にもう一度試しています…"
+            );
+
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+
+          break;
+        } catch (error) {
+          lastError = error;
+
+          // ネットワークエラーの場合も1回だけ再試行
+          if (attempt === 0) {
+            setRateLimitMessage(
+              "通信を確認しています。もう一度接続しています…"
+            );
+
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+        }
+      }
+
+      // fetch自体が失敗した場合
+      if (!res) {
+        console.error("Meal API network error:", lastError);
+
+        setRateLimitMessage(
+          "サーバーに接続できませんでした。通信状態を確認して、もう一度お試しください。入力内容は消去されていません。"
+        );
         return;
       }
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "食事解析に失敗しました");
+      // JSONを安全に取得
+      const data = await res.json().catch(() => ({}));
 
-      const singleMealNutrients: Record<string, number> = { ...ZERO_NUTRIENTS };
-      if (data.items && Array.isArray(data.items)) {
-        for (const item of data.items) {
-          if (!item.nutrients) continue;
-          for (const key of Object.keys(singleMealNutrients)) {
-            singleMealNutrients[key] =
-              (singleMealNutrients[key] || 0) + (Number(item.nutrients[key]) || 0);
-          }
+      // API利用制限
+      if (res.status === 429) {
+        setRateLimitMessage(
+          data.error ||
+            "AIの利用上限に達しています。少し時間をおいて再度お試しください。"
+        );
+        return;
+      }
+
+      // Gemini側の一時的な障害
+      if (res.status === 503) {
+        setRateLimitMessage(
+          data.error ||
+            "現在、食事の解析が混み合っています。少し時間をおいて再度お試しください。"
+        );
+        return;
+      }
+
+      // その他のサーバーエラー
+      if (!res.ok) {
+        setRateLimitMessage(
+          data.error ||
+            "食事を解析できませんでした。入力内容を確認して再度お試しください。"
+        );
+        return;
+      }
+
+      // Geminiから期待した形式のデータが返ってこなかった場合
+      if (!data.items || !Array.isArray(data.items)) {
+        setRateLimitMessage(
+          "解析結果を正しく読み取れませんでした。もう一度お試しください。"
+        );
+        return;
+      }
+
+      const singleMealNutrients: Record<string, number> = {
+        ...ZERO_NUTRIENTS,
+      };
+
+      for (const item of data.items) {
+        if (!item?.nutrients) continue;
+
+        for (const key of Object.keys(singleMealNutrients)) {
+          singleMealNutrients[key] =
+            (singleMealNutrients[key] || 0) +
+            (Number(item.nutrients[key]) || 0);
         }
       }
 
@@ -301,16 +378,27 @@ export default function Home() {
       };
 
       const updatedRecords = [newRecord, ...allRecords];
+
       setAllRecords(updatedRecords);
-      localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(updatedRecords));
+
+      localStorage.setItem(
+        STORAGE_KEY_RECORDS,
+        JSON.stringify(updatedRecords)
+      );
 
       setLastRecordedItem(newRecord);
 
       const updated3Days = calculate3DaysConsumed(updatedRecords);
       generateRecommendationsLocally(updated3Days);
-    } catch (e: any) {
-      console.error(e);
-      alert(`記録エラー: ${e.message}`);
+
+      // 成功したのでエラーメッセージを消す
+      setRateLimitMessage(null);
+    } catch (e) {
+      console.error("Meal record error:", e);
+
+      setRateLimitMessage(
+        "食事を記録できませんでした。入力内容は保持されていますので、もう一度お試しください。"
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -324,7 +412,7 @@ export default function Home() {
     const updated3Days = calculate3DaysConsumed(updated);
     generateRecommendationsLocally(updated3Days);
   };
-
+  
   const handleImportRecords = (importedRecords: MealRecord[]) => {
     setAllRecords(importedRecords);
     localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(importedRecords));
