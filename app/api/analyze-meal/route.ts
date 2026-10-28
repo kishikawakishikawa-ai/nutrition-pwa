@@ -1,21 +1,21 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
+import { performance } from "perf_hooks";
+
+export const maxDuration = 60;
 
 const apiKey = process.env.GEMINI_API_KEY || "";
 const genAI = new GoogleGenerativeAI(apiKey);
 
-// 現在のメインモデルと代替モデル。
-// 代替モデルは、Google AI Studioで利用権限を確認してください。
-const CANDIDATE_MODELS = [
-  "gemini-3.8-flash",
-  "gemini-3.6-flash",
-  "gemini-2.5-flash",
-];
+// 現在使用しているモデルを維持
+const PRIMARY_MODEL = "gemini-3.8-flash";
+const FALLBACK_MODEL = "gemini-2.5-flash";
 
-const MAX_ATTEMPTS_PER_MODEL = 3;
-const INITIAL_DELAY_MS = 1000;
-const MAX_DELAY_MS = 8000;
+// 待ち時間を抑える設定
+const RETRY_DELAY_MS = 800;
+const REQUEST_TIMEOUT_MS = 20000;
 
 function getStatusCode(error: unknown): number | undefined {
   const e = error as {
@@ -25,10 +25,9 @@ function getStatusCode(error: unknown): number | undefined {
     response?: { status?: number };
   };
 
-  const directStatus = e?.status ?? e?.statusCode ?? e?.response?.status;
-  if (typeof directStatus === "number") return directStatus;
+  const direct = e?.status ?? e?.statusCode ?? e?.response?.status;
+  if (typeof direct === "number") return direct;
 
-  // SDKのエラーメッセージに含まれるHTTPステータスも確認
   const message = String(e?.message ?? "");
   const match = message.match(/\b(400|401|403|404|408|429|500|502|503|504)\b/);
   return match ? Number(match[1]) : undefined;
@@ -37,7 +36,6 @@ function getStatusCode(error: unknown): number | undefined {
 function isRetryable(error: unknown): boolean {
   const status = getStatusCode(error);
 
-  // 一時的なサーバー障害・レート制限・タイムアウト
   if (
     status === 408 ||
     status === 429 ||
@@ -49,12 +47,11 @@ function isRetryable(error: unknown): boolean {
     return true;
   }
 
-  // HTTPステータスを取得できない通信エラー
   const message = String(
     (error as { message?: string })?.message ?? ""
   );
 
-  return /fetch failed|network|ECONNRESET|ETIMEDOUT|socket hang up/i.test(
+  return /fetch failed|network|ECONNRESET|ETIMEDOUT|socket hang up|timed out/i.test(
     message
   );
 }
@@ -63,9 +60,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function generateWithRetry(
+function logEvent(
+  event: string,
+  details: Record<string, unknown>
+) {
+  console.log(
+    JSON.stringify({
+      scope: "meal-analysis",
+      event,
+      time: new Date().toISOString(),
+      ...details,
+    })
+  );
+}
+
+async function generateOnce(
   modelName: string,
-  prompt: string
+  prompt: string,
+  requestId: string
 ): Promise<string> {
   const model = genAI.getGenerativeModel({
     model: modelName,
@@ -75,50 +87,50 @@ async function generateWithRetry(
     },
   });
 
-  let lastError: unknown;
+  const started = performance.now();
 
-  for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_MODEL; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
+  logEvent("model_start", { requestId, model: modelName });
 
-      // 不正なJSONは再試行対象とせず、上位にエラーを返す
-      JSON.parse(responseText);
+  try {
+    // AbortSignal.timeoutが対応していない環境ではcatchへ進むため、
+    // Vercel本番環境で動作確認してください。
+    const result = await model.generateContent(
+      prompt,
+      { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }
+    );
 
-      return responseText;
-    } catch (error) {
-      lastError = error;
+    const responseText = result.response.text();
+    JSON.parse(responseText);
 
-      if (!isRetryable(error)) {
-        throw error;
-      }
+    logEvent("model_success", {
+      requestId,
+      model: modelName,
+      durationMs: Math.round(performance.now() - started),
+      responseChars: responseText.length,
+    });
 
-      if (attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
-        const exponentialDelay = Math.min(
-          INITIAL_DELAY_MS * 2 ** attempt,
-          MAX_DELAY_MS
-        );
+    return responseText;
+  } catch (error) {
+    logEvent("model_error", {
+      requestId,
+      model: modelName,
+      durationMs: Math.round(performance.now() - started),
+      status: getStatusCode(error) ?? "unknown",
+      retryable: isRetryable(error),
+      message: String((error as { message?: string })?.message ?? error)
+        .slice(0, 250),
+    });
 
-        // 同時アクセス時の再試行集中を避ける
-        const jitter = Math.floor(Math.random() * 500);
-        const waitMs = exponentialDelay + jitter;
-
-        console.warn(
-          `[Gemini] model=${modelName}, ` +
-          `attempt=${attempt + 1}, ` +
-          `status=${getStatusCode(error) ?? "network"}, ` +
-          `retryIn=${waitMs}ms`
-        );
-
-        await sleep(waitMs);
-      }
-    }
+    throw error;
   }
-
-  throw lastError;
 }
 
 export async function POST(req: Request) {
+  const requestId = randomUUID();
+  const requestStarted = performance.now();
+
+  logEvent("request_start", { requestId });
+
   if (!apiKey) {
     return NextResponse.json(
       {
@@ -190,12 +202,38 @@ export async function POST(req: Request) {
 ${text.trim()}`;
 
   let lastError: unknown;
+  let attempts = 0;
 
-  for (let modelIndex = 0; modelIndex < CANDIDATE_MODELS.length; modelIndex++) {
-    const modelName = CANDIDATE_MODELS[modelIndex];
+  // 最大3回：メインモデル2回、代替モデル1回
+  const plan = [
+    { model: PRIMARY_MODEL, retry: false },
+    { model: PRIMARY_MODEL, retry: true },
+    { model: FALLBACK_MODEL, retry: false },
+  ];
+
+  for (const step of plan) {
+    if (step.retry) {
+      if (!lastError || !isRetryable(lastError)) break;
+
+      logEvent("retry_wait", {
+        requestId,
+        delayMs: RETRY_DELAY_MS,
+      });
+
+      await sleep(RETRY_DELAY_MS);
+    } else if (lastError && !isRetryable(lastError)) {
+      break;
+    }
+
+    attempts++;
 
     try {
-      const responseText = await generateWithRetry(modelName, prompt);
+      const responseText = await generateOnce(
+        step.model,
+        prompt,
+        requestId
+      );
+
       const parsedData = JSON.parse(responseText);
 
       if (
@@ -206,37 +244,42 @@ ${text.trim()}`;
         throw new Error("Geminiから予期しないJSON形式が返されました。");
       }
 
-      // クライアント側で必要な形式を維持
+      logEvent("request_success", {
+        requestId,
+        model: step.model,
+        attempts,
+        totalDurationMs: Math.round(performance.now() - requestStarted),
+      });
+
       return NextResponse.json(parsedData, {
-        headers: { "Cache-Control": "no-store" },
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Request-ID": requestId,
+        },
       });
     } catch (error) {
       lastError = error;
 
-      const status = getStatusCode(error);
-      const retryable = isRetryable(error);
-
-      console.error(
-        `[Gemini] model=${modelName}, status=${status ?? "unknown"}, ` +
-        `retryable=${retryable}`
-      );
-
-      // 認証・権限・不正リクエスト等はモデルを変えても直らない
-      if (!retryable) break;
-
-      // 次のモデルに切り替える
-      if (modelIndex < CANDIDATE_MODELS.length - 1) {
-        console.warn(
-          `[Gemini] Switching from ${modelName} to ` +
-          `${CANDIDATE_MODELS[modelIndex + 1]}`
-        );
-      }
+      logEvent("attempt_failed", {
+        requestId,
+        model: step.model,
+        attempt: attempts,
+        status: getStatusCode(error) ?? "unknown",
+        retryable: isRetryable(error),
+      });
     }
   }
 
-  const finalStatus = getStatusCode(lastError);
+  const status = getStatusCode(lastError);
 
-  if (finalStatus === 429) {
+  logEvent("request_failed", {
+    requestId,
+    attempts,
+    status: status ?? "unknown",
+    totalDurationMs: Math.round(performance.now() - requestStarted),
+  });
+
+  if (status === 429) {
     return NextResponse.json(
       {
         code: "RATE_LIMIT",
@@ -247,23 +290,21 @@ ${text.trim()}`;
   }
 
   if (
-    finalStatus === 503 ||
-    finalStatus === 500 ||
-    finalStatus === 502 ||
-    finalStatus === 504 ||
-    finalStatus === 408 ||
-    finalStatus === undefined
+    status === 408 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    status === undefined
   ) {
     return NextResponse.json(
       {
         code: "AI_TEMPORARY_UNAVAILABLE",
-        error: "現在、食事の解析が混み合っています。入力内容は保持されていますので、少し時間をおいて再度お試しください。",
+        error: "食事の解析に時間がかかっています。入力内容は保持されていますので、少し時間をおいて再度お試しください。",
       },
       { status: 503 }
     );
   }
-
-  console.error("Meal analysis failed:", lastError);
 
   return NextResponse.json(
     {
