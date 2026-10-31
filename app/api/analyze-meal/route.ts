@@ -36,6 +36,7 @@ function getStatusCode(error: unknown): number | undefined {
 function isRetryable(error: unknown): boolean {
   const status = getStatusCode(error);
 
+  // 一時的なHTTPエラー
   if (
     status === 408 ||
     status === 429 ||
@@ -47,11 +48,28 @@ function isRetryable(error: unknown): boolean {
     return true;
   }
 
-  const message = String(
-    (error as { message?: string })?.message ?? ""
-  );
+  const e = error as {
+    message?: string;
+    name?: string;
+  };
 
-  return /fetch failed|network|ECONNRESET|ETIMEDOUT|socket hang up|timed out/i.test(
+  const message = String(e?.message ?? "").toLowerCase();
+  const errorName = String(e?.name ?? "").toLowerCase();
+
+  // タイムアウト・通信中断
+  if (
+    message.includes("aborted") ||
+    message.includes("abort") ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    errorName.includes("abort") ||
+    errorName.includes("timeout")
+  ) {
+    return true;
+  }
+
+  // ネットワークエラー
+  return /fetch failed|network|econnreset|etimedout|socket hang up/i.test(
     message
   );
 }
@@ -204,12 +222,11 @@ ${text.trim()}`;
   let lastError: unknown;
   let attempts = 0;
 
-  // 最大3回：メインモデル2回、代替モデル1回
-  const plan = [
-    { model: PRIMARY_MODEL, retry: false },
-    { model: PRIMARY_MODEL, retry: true },
-    { model: FALLBACK_MODEL, retry: false },
-  ];
+  // 最大2回：メインモデル1回、失敗時は代替モデル1回
+const plan = [
+  { model: PRIMARY_MODEL, retry: false },
+  { model: FALLBACK_MODEL, retry: true },
+];
 
   for (const step of plan) {
     if (step.retry) {
