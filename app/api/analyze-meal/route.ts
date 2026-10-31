@@ -11,7 +11,7 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 // 現在使用しているモデルを維持
 const PRIMARY_MODEL = "gemini-3.8-flash";
-const FALLBACK_MODEL = "gemini-2.5-flash";
+const FALLBACK_MODEL = "gemini-3.5-flash-lite";
 
 // 待ち時間を抑える設定
 const RETRY_DELAY_MS = 800;
